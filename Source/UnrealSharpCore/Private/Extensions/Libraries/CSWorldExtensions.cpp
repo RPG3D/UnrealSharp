@@ -1,6 +1,7 @@
 #include "Extensions/Libraries/CSWorldExtensions.h"
 #include "UnrealSharpCore.h"
 #include "GameFramework/Actor.h"
+#include "Engine/Engine.h"
 
 AActor* UCSWorldExtensions::SpawnActor(const UObject* WorldContextObject, const TSubclassOf<AActor>& Class, const FTransform& Transform, const FCSSpawnActorParameters& InSpawnParameters)
 {

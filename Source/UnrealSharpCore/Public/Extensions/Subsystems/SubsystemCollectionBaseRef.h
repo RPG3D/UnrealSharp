@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Subsystems/SubsystemCollection.h"
 #include "SubsystemCollectionBaseRef.generated.h"
 
 USTRUCT(BlueprintType)

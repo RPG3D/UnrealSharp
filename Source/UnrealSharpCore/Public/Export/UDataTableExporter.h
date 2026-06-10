@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "CSBindsManager.h"
+#include "Engine/DataTable.h"
 #include "UDataTableExporter.generated.h"
 
 UCLASS()

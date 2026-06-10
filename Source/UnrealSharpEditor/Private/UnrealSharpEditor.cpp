@@ -72,7 +72,12 @@ void FUnrealSharpEditorModule::StartupModule()
 	
 	UCSManager::Get().AddOrExecuteOnManagerInitialized(FCSManagerInitializedEvent::FDelegate::CreateLambda([this](UCSManager& Manager)
 	{
+#if !UNREALSHARP_MONO
+		// UnrealSharp.Editor relies on Microsoft.CodeAnalysis.Workspaces.MSBuild which requires
+		// a newer System.Collections.Immutable than the Mono BCL provides (ImmutableHashSet.Create(ReadOnlySpan<T>)).
+		// Skip loading the Editor assembly under Mono to avoid MissingMethodException at startup.
 		Manager.LoadPluginAssemblyByName("UnrealSharp.Editor");
+#endif
 	}));
 }
 
@@ -454,6 +459,8 @@ void FUnrealSharpEditorModule::PackageProject()
 		return;
 	}
 
+#if !UNREALSHARP_MONO
+	// CoreCLR: validate that the executable exists in the archive directory
 	FString ExecutablePath = ArchiveDirectory / FApp::GetProjectName() + TEXT(".exe");
 	if (!FPaths::FileExists(ExecutablePath))
 	{
@@ -461,17 +468,22 @@ void FUnrealSharpEditorModule::PackageProject()
 		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(DialogText));
 		return;
 	}
-	
+#endif
+
 	const UProjectPackagingSettings* PlatformsPackagingSettings = GetDefault<UProjectPackagingSettings>();
-	
+
 	TMap<FString, FString> Arguments;
 	Arguments.Add(TEXT("ArchiveDirectory"), UnrealSharp::Paths::MakeQuotedPath(FPaths::Combine(ArchiveDirectory, FApp::GetProjectName())));
-	
+
 	int32 BuildConfigValue = static_cast<int32>(PlatformsPackagingSettings->BuildConfiguration);
 	UProjectPackagingSettings::FConfigurationInfo ConfigurationInfo = UProjectPackagingSettings::ConfigurationInfo[BuildConfigValue];
 	Arguments.Add(TEXT("UEBuildConfig"), ConfigurationInfo.Name.ToString());
 	Arguments.Add(TEXT("UETargetType"), TEXT("Game"));
-	
+
+#if UNREALSHARP_MONO
+	Arguments.Add(TEXT("TargetPlatform"), FPlatformProperties::PlatformName());
+#endif
+
 	FText BuildActionDisplayName = FText::Format(LOCTEXT("PackagingInProgress", "Packaging C# Project '{0}'"), FText::FromString(FApp::GetProjectName()));
 	UnrealSharp::Build::InvokeUnrealSharpAutomation_Async(UnrealSharp::BuildAction::PackageProject, BuildActionDisplayName, &Arguments);
 }

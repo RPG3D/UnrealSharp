@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Runtime/Launch/Resources/Version.h"
+
 #if ENGINE_MINOR_VERSION >= 5
 #include "StructUtils/UserDefinedStruct.h"
 #else

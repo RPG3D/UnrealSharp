@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "CSBindsManager.h"
 #include "UObject/Object.h"
+#include "Subsystems/Subsystem.h"
+#include "Subsystems/SubsystemCollection.h"
 #include "FSubsystemCollectionBaseRefExporter.generated.h"
 
 UCLASS()

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "SubsystemCollectionBaseRef.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "Tickable.h"
 #include "CSGameInstanceSubsystem.generated.h"
 
 UCLASS(Blueprintable, BlueprintType, Abstract)

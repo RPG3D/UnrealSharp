@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "CSBindsManager.h"
+#include "Engine/TimerHandle.h"
 #include "UWorldExporter.generated.h"
 
 UCLASS()

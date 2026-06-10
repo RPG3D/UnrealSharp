@@ -4,15 +4,17 @@ using System.IO;
 
 namespace UnrealSharp.Plugins;
 
-public class PluginLoadContext : AssemblyLoadContext
+public partial class PluginLoadContext : AssemblyLoadContext
 {
+#if !UNREALSHARP_MONO
     private readonly AssemblyDependencyResolver _resolver;
 
-    public PluginLoadContext(string pluginName, AssemblyDependencyResolver resolver, bool isCollectible) 
+    public PluginLoadContext(string pluginName, AssemblyDependencyResolver resolver, bool isCollectible)
         : base(pluginName, isCollectible)
     {
         _resolver = resolver;
     }
+#endif
 
     protected override Assembly? Load(AssemblyName assemblyName)
     {
@@ -20,14 +22,18 @@ public class PluginLoadContext : AssemblyLoadContext
         {
             return null;
         }
-        
+
         Assembly? loadedAssembly = AssemblyCache.GetAssembly(assemblyName.Name!, this);
         if (loadedAssembly != null)
         {
             return loadedAssembly;
         }
-        
+
+#if UNREALSHARP_MONO
+        string? assemblyPath = ResolveAssemblyPath(assemblyName.Name!);
+#else
         string? assemblyPath = _resolver.ResolveAssemblyToPath(assemblyName);
+#endif
         
         Assembly? newAssembly;
         if (string.IsNullOrEmpty(assemblyPath))

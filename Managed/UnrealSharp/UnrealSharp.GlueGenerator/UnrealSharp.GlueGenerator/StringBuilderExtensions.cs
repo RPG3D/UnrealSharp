@@ -105,8 +105,13 @@ public static class StringBuilderExtensions
     
     public static void AllocateParameterBuffer(this GeneratorStringBuilder builder, string sizeName)
     {
-        builder.AppendLine($"byte* {SourceGenUtilities.ParamsBufferAllocation} = stackalloc byte[{sizeName}];");
-        builder.AppendLine($"nint {SourceGenUtilities.ParamsBuffer} = (nint) {SourceGenUtilities.ParamsBufferAllocation};");
+        // Over-allocate by 15 bytes and manually align to 16 bytes.
+        // Required for Mono INTERP on ARM64 (iOS/Android): stackalloc byte[N] only guarantees
+        // byte alignment, but UE structs with CppStructOps (e.g. FHitResult) require >= 8-byte
+        // alignment. UScriptStruct::InitializeStruct has checkf(IsAligned(ptr, alignment)) which
+        // triggers a crash if the buffer is misaligned.
+        builder.AppendLine($"byte* {SourceGenUtilities.ParamsBufferAllocation} = stackalloc byte[{sizeName} + 15];");
+        builder.AppendLine($"nint {SourceGenUtilities.ParamsBuffer} = (nint)((((nint){SourceGenUtilities.ParamsBufferAllocation}) + 15) & ~(nint)15);");
     }
     
     public static void AppendEditorBrowsableAttribute(this GeneratorStringBuilder builder)

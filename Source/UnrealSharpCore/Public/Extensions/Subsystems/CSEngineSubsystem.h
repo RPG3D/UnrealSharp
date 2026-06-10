@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "SubsystemCollectionBaseRef.h"
 #include "Subsystems/EngineSubsystem.h"
+#include "Tickable.h"
 #include "CSEngineSubsystem.generated.h"
 
 UCLASS(Blueprintable, BlueprintType, Abstract)

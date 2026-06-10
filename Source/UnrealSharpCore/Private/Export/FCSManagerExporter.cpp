@@ -1,6 +1,7 @@
 ﻿#include "Export/FCSManagerExporter.h"
 
 #include "CSManager.h"
+#include "Engine/Engine.h"
 
 void* UFCSManagerExporter::FindManagedObject(UObject* Object)
 {

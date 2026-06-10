@@ -1,6 +1,8 @@
 ﻿#include "Export/UWorldExporter.h"
 
 #include "CSManager.h"
+#include "Engine/World.h"
+#include "TimerManager.h"
 #include "Kismet/KismetSystemLibrary.h"
 
 void UUWorldExporter::SetTimer(UObject* Object, FName FunctionName, float Rate, bool Loop, float InitialDelay, FTimerHandle* TimerHandle)

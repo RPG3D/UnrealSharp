@@ -20,19 +20,21 @@ DEFINE_LOG_CATEGORY(LogUnrealSharp);
 
 void FUnrealSharpCoreModule::StartupModule()
 {
-#if WITH_EDITOR
+#if WITH_EDITOR && !UNREALSHARP_MONO
+	// CoreCLR requires .NET SDK and builds the user solution at startup.
+	// Mono has its own runtime and doesn't need these checks.
 	if (!UnrealSharp::DotNetUtilities::VerifyCSharpEnvironment() || !UnrealSharp::DotNetUtilities::BuildUserSolution())
 	{
 		StartupModule();
 		return;
 	}
 #endif
-	
+
 	if (!DotNetRuntimeHost.InitializeManagedRuntime())
 	{
 		return;
 	}
-	
+
 	UCSManager::Get().Initialize();
 }
 

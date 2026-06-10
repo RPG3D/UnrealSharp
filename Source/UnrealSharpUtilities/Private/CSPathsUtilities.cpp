@@ -30,7 +30,12 @@ FString UnrealSharp::Paths::GetPluginAssembliesPath()
 
 FString UnrealSharp::Paths::GetUnrealSharpPluginsPath()
 {
+#if UNREALSHARP_MONO && !WITH_EDITOR
+    // In Mono packaged builds, UnrealSharp.Plugins.dll is in Content/Managed/{Platform}/ (inside PAK).
+    return GetUserAssemblyDirectory() / TEXT("UnrealSharp.Plugins.dll");
+#else
     return GetPluginAssembliesPath() / TEXT("UnrealSharp.Plugins.dll");
+#endif
 }
 
 FString UnrealSharp::Paths::GetUnrealSharpBuildToolPath()
@@ -44,7 +49,27 @@ FString UnrealSharp::Paths::GetUnrealSharpBuildToolPath()
 
 FString UnrealSharp::Paths::GetUserAssemblyDirectory()
 {
+#if UNREALSHARP_MONO && !WITH_EDITOR
+    // Mono packaged build: DLLs are staged into Content/Managed/{Platform}/ and loaded from PAK via UFS.
+#if PLATFORM_WINDOWS
+    const FString ManagedPlatformDir = TEXT("Win64");
+#elif PLATFORM_MAC
+    const FString ManagedPlatformDir = TEXT("Mac");
+#elif PLATFORM_ANDROID
+    const FString ManagedPlatformDir = TEXT("Android");
+#elif PLATFORM_IOS
+#if WITH_IOS_SIMULATOR
+    const FString ManagedPlatformDir = TEXT("IOSSimulator");
+#else
+    const FString ManagedPlatformDir = TEXT("IOS");
+#endif
+#else
+    const FString ManagedPlatformDir = FPlatformProperties::PlatformName();
+#endif
+    return FPaths::Combine(FPaths::ProjectContentDir(), TEXT("Managed"), ManagedPlatformDir);
+#else
     return FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectDir(), DotNetUtilities::GetManagedBinaries()));
+#endif
 }
 
 FString UnrealSharp::Paths::GetUnrealSharpMetadataPath()

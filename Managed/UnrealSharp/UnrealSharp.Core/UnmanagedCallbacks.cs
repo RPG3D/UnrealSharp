@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using UnrealSharp.Core.Attributes;
 using UnrealSharp.Core.Marshallers;
@@ -81,32 +82,64 @@ public static class UnmanagedCallbacks
     }
     
     [UnmanagedCallersOnly]
-    public static unsafe IntPtr LookupManagedMethod(IntPtr typeHandlePtr, char* methodName)
+    public static unsafe IntPtr LookupManagedMethod(IntPtr typeHandlePtr, nint methodNamePtr)
     {
+        // CRITICAL: Copy the native string to a managed string IMMEDIATELY before any other operations.
+        // Under Mono INTERP, native function pointer calls (e.g. logging) may cause the C++ heap at
+        // methodNamePtr to be reallocated, corrupting the string if we read it later.
+#if UNREALSHARP_MONO
+        string methodNameString = new string((char*)methodNamePtr);
+#endif
         try
         {
             Type? type = GCHandleUtilities.GetObjectFromHandlePtr<Type>(typeHandlePtr);
-            
+
             if (type == null)
             {
                 throw new Exception("Invalid type handle");
             }
-            
-            string methodNameString = new string(methodName);
+
+#if !UNREALSHARP_MONO
+            string methodNameString = new string((char*)methodNamePtr);
             BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+#endif
             Type? currentType = type;
-            
+
             while (currentType != null)
             {
+#if UNREALSHARP_MONO
+                // Under Mono AOT INTERP, Type.GetMethod() may fail to find source-generator-generated
+                // methods (Invoke_XXX) due to a known Mono reflection limitation with partial class
+                // source-generated methods. Use TypeInfo.DeclaredMethods instead.
+                MethodInfo? method = null;
+                foreach (var candidate in currentType.GetTypeInfo().DeclaredMethods)
+                {
+                    if (candidate.Name == methodNameString)
+                    {
+                        method = candidate;
+                        break;
+                    }
+                }
+#else
                 MethodInfo? method = currentType.GetMethod(methodNameString, flags);
+#endif
 
                 if (method != null)
                 {
+#if UNREALSHARP_MONO
+                    // Under Mono, GetFunctionPointer() triggers JIT compilation via
+                    // mono_method_get_unmanaged_wrapper_ftnptr_internal which can SIGSEGV.
+                    // Instead, store the MethodInfo object itself as a GCHandle.
+                    // InvokeManagedMethod will use reflection to call it under Mono.
+                    GCHandle methodHandle = GCHandleUtilities.AllocateStrongPointer(method, type.Assembly);
+                    return GCHandle.ToIntPtr(methodHandle);
+#else
                     IntPtr functionPtr = method.MethodHandle.GetFunctionPointer();
                     GCHandle methodHandle = GCHandleUtilities.AllocateStrongPointer(functionPtr, type.Assembly);
                     return GCHandle.ToIntPtr(methodHandle);
+#endif
                 }
-                
+
                 currentType = currentType.BaseType;
             }
 
@@ -155,11 +188,12 @@ public static class UnmanagedCallbacks
     }
     
     [UnmanagedCallersOnly]
-    public static unsafe IntPtr LookupManagedType(IntPtr assemblyHandle, char* fullTypeName)
+    public static unsafe IntPtr LookupManagedType(IntPtr assemblyHandle, nint fullTypeNamePtr)
     {
+        // CRITICAL: Copy the native string FIRST before any native callbacks that could corrupt it.
+        string fullTypeNameString = new string((char*)fullTypeNamePtr);
         try
         {
-            string fullTypeNameString = new string(fullTypeName);
             Assembly? loadedAssembly = GCHandleUtilities.GetObjectFromHandlePtr<Assembly>(assemblyHandle);
 
             if (loadedAssembly == null)
@@ -206,17 +240,25 @@ public static class UnmanagedCallbacks
     
     [UnmanagedCallersOnly]
     public static unsafe int InvokeManagedMethod(IntPtr managedObjectHandle,
-        IntPtr methodHandlePtr, 
-        IntPtr argumentsBuffer, 
-        IntPtr returnValueBuffer, 
+        IntPtr methodHandlePtr,
+        IntPtr argumentsBuffer,
+        IntPtr returnValueBuffer,
         IntPtr exceptionTextBuffer)
     {
         try
         {
+#if UNREALSHARP_MONO
+            // Under Mono, LookupManagedMethod stores a MethodInfo GCHandle (not a function pointer).
+            // Use reflection to invoke it.
+            MethodInfo? methodInfo = GCHandleUtilities.GetObjectFromHandlePtrFast<MethodInfo>(methodHandlePtr);
+            object managedObject = GCHandleUtilities.GetObjectFromHandlePtrFast<object>(managedObjectHandle)!;
+            methodInfo!.Invoke(managedObject, new object[] { argumentsBuffer, returnValueBuffer });
+#else
             IntPtr methodHandle = GCHandleUtilities.GetObjectFromHandlePtrFast<IntPtr>(methodHandlePtr)!;
             object managedObject = GCHandleUtilities.GetObjectFromHandlePtrFast<object>(managedObjectHandle)!;
             delegate*<object, IntPtr, IntPtr, void> methodPtr = (delegate*<object, IntPtr, IntPtr, void>) methodHandle;
             methodPtr(managedObject, argumentsBuffer, returnValueBuffer);
+#endif
             return 0;
         }
         catch (Exception ex)

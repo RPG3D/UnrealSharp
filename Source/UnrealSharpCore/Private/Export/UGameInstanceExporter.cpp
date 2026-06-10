@@ -1,6 +1,9 @@
 ﻿#include "Export/UGameInstanceExporter.h"
 
 #include "CSManager.h"
+#include "Engine/World.h"
+#include "Engine/GameInstance.h"
+#include "Subsystems/GameInstanceSubsystem.h"
 
 void* UUGameInstanceExporter::GetGameInstanceSubsystem(UClass* SubsystemClass, UObject* WorldContextObject)
 {

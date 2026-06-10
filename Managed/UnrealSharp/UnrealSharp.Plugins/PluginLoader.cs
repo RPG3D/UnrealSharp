@@ -53,7 +53,15 @@ public static class PluginLoader
         }
         catch (Exception ex)
         {
+#if UNREALSHARP_MONO
+            // Under Mono, avoid calling the logging system here because FMsgExporter may not yet
+            // be initialized (its .cctor calls NativeBinds.TryGetBoundFunction), causing
+            // re-entrant initialization and a crash. Write to a temp file instead.
+            try { System.IO.File.WriteAllText("/tmp/UnrealSharp_LoadPlugin_Exception.txt", ex.ToString()); } catch { }
+            Console.WriteLine($"[Mono] LoadPlugin error: {ex}");
+#else
             LogUnrealSharpPlugins.LogError($"An error occurred while loading the plugin: {ex.Message}");
+#endif
         }
 
         return null;
@@ -80,9 +88,17 @@ public static class PluginLoader
 
     public static void UnloadPlugin(string assemblyPath)
     {
-        TaskTracker.WaitForAllActiveTasks();
-        
         string assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
+
+#if UNREALSHARP_MONO
+        // On Mono, ALC.Unload() is asynchronous — the ALC is not collected until the next
+        // GC cycle. We call Unload() (via RemovePlugin → Plugin.Unload) and return
+        // immediately; Mono's GC will reclaim the ALC in the background.
+        RemovePlugin(assemblyName);
+        LogUnrealSharpPlugins.Log($"[Mono] Unload requested for {assemblyName}. GC will reclaim ALC asynchronously.");
+        return;
+#else
+        TaskTracker.WaitForAllActiveTasks();
         WeakReference? weakAlc = RemovePlugin(assemblyName);
 
         if (weakAlc == null)
@@ -131,6 +147,7 @@ public static class PluginLoader
         {
             LogUnrealSharpPlugins.LogError($"An error occurred while unloading the plugin: {exception}");
         }
+#endif
     }
     
     public static Plugin? FindPluginByName(string assemblyName)

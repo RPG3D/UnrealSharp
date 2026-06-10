@@ -73,6 +73,25 @@ FString UnrealSharp::DotNetUtilities::GetDotNetExecutablePath()
 
 FString UnrealSharp::DotNetUtilities::GetLatestHostFxrPath()
 {
+#if UNREALSHARP_MONO
+    // Mono runtime is build-time linked; hostfxr is not used.
+    // Return the Mono runtime library path for callers that need a runtime library reference.
+#if PLATFORM_ANDROID
+    return FPaths::Combine(Paths::GetPluginDirectory(), TEXT("Source/ThirdParty"), TEXT("MonoSDK"),
+        FString(FPlatformProperties::PlatformName()), TEXT("lib"), TEXT("libmonosgen-2.0.so"));
+#elif PLATFORM_MAC
+    return FPaths::Combine(Paths::GetPluginDirectory(), TEXT("Source/ThirdParty"), TEXT("MonoSDK"),
+        FString(FPlatformProperties::PlatformName()), TEXT("lib"), TEXT("libcoreclr.dylib"));
+#elif PLATFORM_IOS
+    // iOS uses static linking -- no dynamic library path needed.
+    return TEXT("");
+#elif PLATFORM_WINDOWS
+    return FPaths::Combine(Paths::GetPluginDirectory(), TEXT("Source/ThirdParty"), TEXT("MonoSDK"),
+        TEXT("Win64"), TEXT("lib"), TEXT("coreclr.dll"));
+#else
+    #error "UNREALSHARP_MONO is not supported on this platform. Add a platform-specific MonoSDK library path."
+#endif
+#else
     const FString DotNetRoot = GetDotNetDirectory();
     const FString HostFxrRoot = FPaths::Combine(DotNetRoot, TEXT("host"), TEXT("fxr"));
 
@@ -105,22 +124,28 @@ FString UnrealSharp::DotNetUtilities::GetLatestHostFxrPath()
 #else
     return FPaths::Combine(HostFxrRoot, HighestVersion, HOSTFXR_LINUX);
 #endif
+#endif // !UNREALSHARP_MONO
 }
 
 FString UnrealSharp::DotNetUtilities::GetRuntimeHostPath()
 {
+#if UNREALSHARP_MONO
+    // Mono runtime: return the build-time linked Mono library path.
+    return GetLatestHostFxrPath();
+#else
     if (InstallationUtilities::IsUnrealSharpInstalled())
     {
 #if defined(_WIN32)
     return FPaths::Combine(Paths::GetPluginAssembliesPath(), HOSTFXR_WINDOWS);
 #elif defined(__APPLE__)
-    return FPaths::Combine(GetPluginAssembliesPath(), HOSTFXR_MAC);
+    return FPaths::Combine(Paths::GetPluginAssembliesPath(), HOSTFXR_MAC);
 #else
-    return FPaths::Combine(GetPluginAssembliesPath(), HOSTFXR_LINUX);
+    return FPaths::Combine(Paths::GetPluginAssembliesPath(), HOSTFXR_LINUX);
 #endif
     }
 
     return GetLatestHostFxrPath();
+#endif
 }
 
 FString UnrealSharp::DotNetUtilities::GetRuntimeConfigPath()

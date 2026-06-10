@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "CSBindsManager.h"
+#include "Components/InputComponent.h"
+#include "Engine/EngineBaseTypes.h"
 #include "UInputComponentExporter.generated.h"
 
 class UInputAction;
