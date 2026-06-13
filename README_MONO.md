@@ -130,14 +130,42 @@ Under Mono, hot-reload uses `dotnet build` instead of the Roslyn backend (`Unrea
 
 ## Third-Party Dependencies
 
-**MonoSDK** — prebuilt Mono runtime libraries and BCL for all supported platforms.
+**MonoSDK** — Mono runtime libraries and BCL for all supported platforms.
 
 | | |
 |---|---|
 | **GitHub** | [RPG3D/MonoSDK](https://github.com/RPG3D/MonoSDK) |
 | **Clone location** | `Source/ThirdParty/MonoSDK/` |
 
-The MonoSDK submodule provides `libmonosgen-2.0`, `libcoreclr`, BCL DLLs, and platform-specific libraries (iOS AOT stubs, Android APL XML, macOS interop dylibs).
+> **Important**: The MonoSDK git repository no longer contains prebuilt binary files. It now holds only build scripts, CI/CD workflows, Mono C headers, and UBT integration files. Platform binaries must be downloaded or built separately.
+
+### Getting the SDK files
+
+After `git submodule update --init`, the `MonoSDK/` directory will contain only scripts and headers — **not** the runtime binaries. You must populate the platform directories (`Win64/`, `Mac/`, `Android/`, `IOS/`, `IOSSimulator/`) using one of the methods below:
+
+#### Option A: Download from GitHub Releases (recommended)
+
+Download the latest prebuilt SDK from [GitHub Releases](https://github.com/RPG3D/MonoSDK/releases):
+
+1. Go to the [Releases page](https://github.com/RPG3D/MonoSDK/releases)
+2. Download `MonoSDK-{version}-Release.zip` (or `Debug` for debug builds)
+3. Extract the ZIP into `Source/ThirdParty/MonoSDK/`. The ZIP contains the full directory tree with all platform binaries — extract it so that `Win64/`, `Mac/`, etc. merge into the existing directory.
+
+#### Option B: Build from source
+
+Build Mono from the [dotnet/runtime](https://github.com/dotnet/runtime) source tree (branch `release/10.0`):
+
+```bash
+# Windows (Win64)
+./BuildMonoSDK.bat <path-to-dotnet-runtime-src>
+
+# macOS / Linux / iOS / Android
+./BuildMonoSDK.sh <path-to-dotnet-runtime-src> <platform> <build-type>
+# platform: macos | android | ios | iossimulator
+# build-type: Debug | Release
+```
+
+The build scripts automatically copy artifacts into the correct platform subdirectories. See `.github/workflows/build-all.yml` for the exact CI build steps.
 
 ## Key files
 
