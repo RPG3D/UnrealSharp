@@ -283,6 +283,14 @@ MonoDomain* InitializeMonoRuntime(const FString& RuntimeDir, const FString& Extr
 
 #if PLATFORM_IOS && WITH_IOS_SIMULATOR
 	const FString ManagedPlatformDir = TEXT("IOSSimulator");
+#elif PLATFORM_WINDOWS
+	const FString ManagedPlatformDir = TEXT("Win64");
+#elif PLATFORM_MAC
+	const FString ManagedPlatformDir = TEXT("Mac");
+#elif PLATFORM_ANDROID
+	const FString ManagedPlatformDir = TEXT("Android");
+#elif PLATFORM_IOS
+	const FString ManagedPlatformDir = TEXT("IOS");
 #else
 	const FString ManagedPlatformDir = FPlatformProperties::PlatformName();
 #endif
