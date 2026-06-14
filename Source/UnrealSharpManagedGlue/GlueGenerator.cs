@@ -16,5 +16,9 @@ public static class GlueGenerator
         AutocastExporter.BindAutocasts();
         
         PackageHeadersTracker.SerializeModuleData();
+
+        // Write a Timestamp file so the next run can skip re-export when nothing changed.
+        string timestampPath = System.IO.Path.Combine(GeneratorStatics.PluginModule.OutputDirectory, "Timestamp");
+        System.IO.File.WriteAllText(timestampPath, System.DateTime.UtcNow.ToString("O"));
     }
 }
