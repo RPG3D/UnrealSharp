@@ -123,5 +123,5 @@ private:
 	
 	bool bHasInitialized = false;
 	
-	static UCSManager* Instance;
+	static UNREALSHARPCORE_API UCSManager* Instance;
 };

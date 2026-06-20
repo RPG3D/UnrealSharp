@@ -36,7 +36,11 @@ FString UnrealSharp::DotNetUtilities::GetDotNetDirectory()
     PathVariable.ParseIntoArray(Paths, FPlatformMisc::GetPathVarDelimiter());
 
 #if defined(_WIN32)
-    const FString PathMarker = TEXT("Program Files\\dotnet\\");
+    // Match the directory name without trailing backslash - PATH entries are usually
+    // "C:\Program Files\dotnet" (no trailing \). The old marker "Program Files\dotnet\"
+    // never matched, making VerifyCSharpEnvironment() think the SDK was missing and
+    // spinning a dialog/retry loop. FPaths::DirectoryExists validates the match below.
+    const FString PathMarker = TEXT("Program Files\\dotnet");
 #else
     const FString PathMarker = TEXT("dotnet");
 #endif
@@ -114,9 +118,9 @@ FString UnrealSharp::DotNetUtilities::GetRuntimeHostPath()
 #if defined(_WIN32)
     return FPaths::Combine(Paths::GetPluginAssembliesPath(), HOSTFXR_WINDOWS);
 #elif defined(__APPLE__)
-    return FPaths::Combine(GetPluginAssembliesPath(), HOSTFXR_MAC);
+    return FPaths::Combine(Paths::GetPluginAssembliesPath(), HOSTFXR_MAC);
 #else
-    return FPaths::Combine(GetPluginAssembliesPath(), HOSTFXR_LINUX);
+    return FPaths::Combine(Paths::GetPluginAssembliesPath(), HOSTFXR_LINUX);
 #endif
     }
 

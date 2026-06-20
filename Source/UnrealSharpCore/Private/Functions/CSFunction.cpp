@@ -45,6 +45,13 @@ bool UCSFunctionBase::UpdateMethodHandle()
 	}
 	
 	UCSClass* ManagedClass = static_cast<UCSClass*>(GetOwnerClass());
+	
+	//fix mono jit call ctor crash
+	if (Cast<UCSSkeletonClass>(ManagedClass))
+	{
+		return true;
+	}
+	
 	UCSManagedAssembly* Assembly = ManagedClass->GetOwningAssembly();
 	
 	TSharedPtr<FCSManagedTypeDefinition> ClassInfo = ManagedClass->GetManagedTypeDefinition();

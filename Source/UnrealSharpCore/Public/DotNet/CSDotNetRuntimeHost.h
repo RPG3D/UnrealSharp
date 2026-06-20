@@ -2,6 +2,9 @@
 
 #include <coreclr_delegates.h>
 #include <hostfxr.h>
+#if PLATFORM_ANDROID || PLATFORM_IOS
+#include <coreclrhost.h>
+#endif
 #include "HAL/PlatformProcess.h"
 
 struct FCSManagedCallbacks;
@@ -14,14 +17,15 @@ class FCSDotNetRuntimeHost
 public:
 	FCSDotNetRuntimeHost() = default;
 	~FCSDotNetRuntimeHost();
-	
+
 	bool InitializeManagedRuntime();
 	void ShutdownManagedRuntime();
 
 private:
+	// ── Desktop (Win64/Mac) hostfxr path ────────────────────────────────────
 	load_assembly_and_get_function_pointer_fn InitializeHost();
 	load_assembly_and_get_function_pointer_fn ConfigureRuntime() const;
-	
+
 	template <typename FunctionPointer>
 	bool BindExport(FunctionPointer& OutFunctionPointer, const TCHAR* ExportName)
 	{
@@ -35,4 +39,15 @@ private:
 	hostfxr_close_fn Hostfxr_Close = nullptr;
 
 	void* RuntimeHost = nullptr;
+
+#if PLATFORM_ANDROID || PLATFORM_IOS
+	bool InitializeManagedRuntimeMobile();
+	
+	bool EnsureRuntimeDllsExtracted(FString& OutRuntimeDir, TArray<FString>& OutSourceDllNames);
+
+	FString BuildTpa(const FString& RuntimeDir, const TArray<FString>& SourceDllNames) const;
+
+	void* CoreClrHandle = nullptr;      // coreclr host handle (from coreclr_initialize)
+	unsigned int CoreClrDomainId = 0;   // app domain id (from coreclr_initialize)
+#endif
 };

@@ -28,6 +28,11 @@ FCSDotNetRuntimeHost::~FCSDotNetRuntimeHost()
 
 bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 {
+#if PLATFORM_ANDROID || PLATFORM_IOS
+
+	return InitializeManagedRuntimeMobile();
+	
+#else
 	load_assembly_and_get_function_pointer_fn LoadAssemblyAndGetFunctionPointer = InitializeHost();
 	if (!LoadAssemblyAndGetFunctionPointer)
 	{
@@ -69,19 +74,29 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 #endif
 
 	return true;
+#endif // !PLATFORM_IOS
 }
 
 void FCSDotNetRuntimeHost::ShutdownManagedRuntime()
 {
+#if PLATFORM_ANDROID || PLATFORM_IOS
+	if (CoreClrHandle)
+	{
+		coreclr_shutdown(CoreClrHandle, CoreClrDomainId);
+	}
+	CoreClrHandle = nullptr;
+	CoreClrDomainId = 0;
+#else
 	if (RuntimeHost)
 	{
 		FPlatformProcess::FreeDllHandle(RuntimeHost);
 	}
-	
+
 	Hostfxr_InitForCommandLine = nullptr;
 	Hostfxr_InitForRuntimeConfig = nullptr;
 	Hostfxr_GetRuntimeDelegate = nullptr;
 	Hostfxr_Close = nullptr;
+#endif
 }
 
 load_assembly_and_get_function_pointer_fn FCSDotNetRuntimeHost::InitializeHost()

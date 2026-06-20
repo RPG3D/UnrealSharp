@@ -12,7 +12,7 @@ public static class BuildUtilities
         {
             return;
         }
-        
+
         ConsoleUtilities.Log("Engine glue has been modified since the last build. Rebuilding bindings...");
 
         List<KeyValuePair<string, string>> actionArgs =
