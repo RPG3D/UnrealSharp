@@ -26,7 +26,14 @@
             <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
         </ProjectReference>
         
-        <PackageReference Include="Microsoft.Build.Locator" />
+        <!-- Microsoft.Build.Locator is an editor-only dependency (the WITH_EDITOR block
+             in Main.cs uses it to register MSBuild for C# project building). It MUST be
+             excluded from runtime/packaged builds: on Android there is no dotnet SDK on
+             PATH, so MSBuildLocator's static Lazy initialization throws
+             InvalidOperationException and crashes InitializeUnrealSharp. Gating the
+             PackageReference on DisableWithEditor ensures the assembly isn't referenced
+             (and isn't packaged) for Game/Shipping builds. -->
+        <PackageReference Include="Microsoft.Build.Locator" Condition="'$(DisableWithEditor)' != 'true'" />
     </ItemGroup>
 
     

@@ -193,10 +193,20 @@ void UCSManager::InitialAssemblyLoad()
 	for (const FCSLoadOrderManifest& Manifest : LoadOrderManifests)
 	{
 		UE_LOGFMT(LogUnrealSharp, Display, "Loading assemblies from manifest: {0} (Priority: {1}", Manifest.Name, Manifest.Priority);
-		
+
 		for (const FString& Path : Manifest.AssemblyPaths)
 		{
+			// Android packaged builds never hot-reload assemblies, so collectible
+			// AssemblyLoadContexts are unnecessary — and they break shared dependencies:
+			// a shared assembly (e.g. the game-module bindings DLL) pulled into one
+			// plugin's collectible context can't be loaded again as another plugin's
+			// dependency, raising "Shared collectible context detected". Force
+			// non-collectible on Android to avoid that.
+#if PLATFORM_ANDROID && !WITH_EDITOR
+			LoadAssemblyByPath(Path, false);
+#else
 			LoadAssemblyByPath(Path, Manifest.bCollectible);
+#endif
 		}
 	}
 }
@@ -218,9 +228,22 @@ UCSManagedAssembly* UCSManager::LoadAssemblyByPath(const FString& AssemblyPath, 
 	}
 	else
 	{
-		Assembly = NewObject<UCSManagedAssembly>(this, *AssemblyName);
+		// CSManager is created during the PostDefault loading phase (before CloseDisregardForGC),
+		// so it ends up in the permanent/disregard-for-GC pool. A disregard-for-GC object may
+		// only reference objects that are themselves rooted, disregard-for-GC, or cluster roots.
+		// Assemblies loaded at runtime (after CloseDisregardForGC) — e.g. the game-module
+		// bindings DLL pulled in by native Bind_UClass — are none of those, which trips
+		// GarbageCollectionVerification ("Disregard for GC object CSManager referencing
+		// CSManagedAssembly ... which is not part of root set") on packaged builds (where
+		// GC verification is enabled, unlike the editor). Rooting non-collectible assemblies
+		// fixes this; collectible ones stay unrooted so editor hot-reload can still reclaim them.
+		// Note: collectible keeps the original RF_NoFlags (no NewObject flags arg) so Win/Mac
+		// editor/packaged behavior is unchanged; only non-collectible adds RF_MarkAsRootSet.
+		Assembly = bIsCollectible
+			? NewObject<UCSManagedAssembly>(this, *AssemblyName)
+			: NewObject<UCSManagedAssembly>(this, *AssemblyName, RF_MarkAsRootSet);
 		Assembly->Initialize(AssemblyPath, bIsCollectible);
-		
+
 		Assemblies.Add(Assembly->GetFName(), Assembly);
 	}
 

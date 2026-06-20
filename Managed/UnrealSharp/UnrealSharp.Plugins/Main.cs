@@ -3,11 +3,10 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using System.Runtime.InteropServices;
-using Microsoft.Build.Locator;
 using UnrealSharp.Binds;
 using UnrealSharp.Core;
 
-#if !PACKAGE
+#if WITH_EDITOR
 using Microsoft.Build.Locator;
 #endif
 
@@ -15,8 +14,12 @@ namespace UnrealSharp.Plugins;
 
 public static class Main
 {
+    // Public so coreclr_create_delegate can resolve it on Android (raw CoreCLR path).
+    // The desktop hostfxr path resolves via load_assembly_and_get_function_pointer and
+    // does not require public visibility, but [UnmanagedCallersOnly] methods cannot be
+    // invoked from managed code anyway, so making it public has no managed-call surface.
     [UnmanagedCallersOnly]
-    private static unsafe NativeBool InitializeUnrealSharp(char* workingDirectoryPath, nint assemblyPath, PluginsCallbacks* pluginCallbacks, IntPtr bindsCallbacks, IntPtr managedCallbacks)
+    public static unsafe NativeBool InitializeUnrealSharp(char* workingDirectoryPath, nint assemblyPath, PluginsCallbacks* pluginCallbacks, IntPtr bindsCallbacks, IntPtr managedCallbacks)
     {
         try
         {

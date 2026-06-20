@@ -28,6 +28,12 @@ FCSDotNetRuntimeHost::~FCSDotNetRuntimeHost()
 
 bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 {
+#if PLATFORM_ANDROID
+	// Android has no hostfxr — bootstrap CoreCLR via the raw coreclr_initialize /
+	// coreclr_create_delegate C API (see coreclrhost.h). Implementation lives in
+	// CSDotNetRuntimeHost_Android.cpp. Win64/Mac keep the hostfxr path below.
+	return InitializeManagedRuntimeAndroid();
+#else
 	load_assembly_and_get_function_pointer_fn LoadAssemblyAndGetFunctionPointer = InitializeHost();
 	if (!LoadAssemblyAndGetFunctionPointer)
 	{
@@ -69,19 +75,29 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 #endif
 
 	return true;
+#endif // !PLATFORM_ANDROID
 }
 
 void FCSDotNetRuntimeHost::ShutdownManagedRuntime()
 {
+#if PLATFORM_ANDROID
+	if (CoreClrHandle)
+	{
+		coreclr_shutdown(CoreClrHandle, CoreClrDomainId);
+	}
+	CoreClrHandle = nullptr;
+	CoreClrDomainId = 0;
+#else
 	if (RuntimeHost)
 	{
 		FPlatformProcess::FreeDllHandle(RuntimeHost);
 	}
-	
+
 	Hostfxr_InitForCommandLine = nullptr;
 	Hostfxr_InitForRuntimeConfig = nullptr;
 	Hostfxr_GetRuntimeDelegate = nullptr;
 	Hostfxr_Close = nullptr;
+#endif
 }
 
 load_assembly_and_get_function_pointer_fn FCSDotNetRuntimeHost::InitializeHost()

@@ -44,7 +44,19 @@ FString UnrealSharp::Paths::GetUnrealSharpBuildToolPath()
 
 FString UnrealSharp::Paths::GetUserAssemblyDirectory()
 {
+#if PLATFORM_ANDROID && !WITH_EDITOR
+    // On Android packaged builds, the CoreCLR host extracts BCL + project managed DLLs
+    // (and LoadOrder manifests) from the PAK/NonUFS sources into a writable runtime dir
+    // (ProjectSavedDir/Managed/Android) at launch — CoreCLR needs real OS
+    // filesystem paths for the TPA. The default Binaries/Managed/... path lives inside the
+    // PAK and isn't where the DLLs actually are, so manifest discovery (DiscoverLoadOrder-
+    // Manifests) and assembly loading (CSManager::LoadAssembly) would find nothing there.
+    // Point GetUserAssemblyDirectory at the extracted runtime dir so all consumers agree.
+    return IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(
+        *FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Managed"), TEXT("Android")));
+#else
     return FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectDir(), DotNetUtilities::GetManagedBinaries()));
+#endif
 }
 
 FString UnrealSharp::Paths::GetUnrealSharpMetadataPath()

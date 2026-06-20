@@ -38,7 +38,11 @@ public class Plugin
         }
         else
         {
-            _loadContext = new PluginLoadContext(assemblyName.Name!, new AssemblyDependencyResolver(assemblyPath), isCollectible);
+            // AssemblyDependencyResolver throws PlatformNotSupportedException on Android
+            // (raw coreclr host has no hostpolicy); TryCreateResolver returns null there and
+            // PluginLoadContext falls back to directory-based resolution. See
+            // PluginLoadContext_Android.cs.
+            _loadContext = new PluginLoadContext(assemblyName.Name!, PluginLoadContext.TryCreateResolver(assemblyPath), isCollectible, assemblyPath);
         }
     }
 
