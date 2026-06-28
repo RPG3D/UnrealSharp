@@ -83,3 +83,5 @@ obj/
 !UnrealSharp.GeneratedFiles.props
 !UnrealSharp.AOT.props
 !UnrealSharp.Automation.props
+
+/Managed/Binaries/

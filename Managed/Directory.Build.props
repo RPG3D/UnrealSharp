@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
     <OutputPath Condition="'$(UseDefaultOutputPath)' != 'true'">$(SolutionDir)..\..\Binaries\Managed\</OutputPath>
+    <DefineConstants Condition="'$(UseMonoRuntime)' == 'true'">$(DefineConstants);UNREALSHARP_MONO</DefineConstants>
   </PropertyGroup>
 </Project>

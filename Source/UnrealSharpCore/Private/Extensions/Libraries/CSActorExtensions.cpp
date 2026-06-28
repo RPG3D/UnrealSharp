@@ -6,6 +6,8 @@
 #include "Logging/StructuredLog.h"
 #include "Types/CSClass.h"
 #include "Utilities/CSClassUtilities.h"
+#include "GameFramework/Actor.h"
+#include "Components/ActorComponent.h"
 
 #ifdef __clang__
 #pragma clang diagnostic ignored "-Wextern-initializer"

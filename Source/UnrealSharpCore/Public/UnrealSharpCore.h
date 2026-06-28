@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "DotNet/CSDotNetRuntimeHost.h"
 #include "Modules/ModuleManager.h"
+#include "Runtime/Launch/Resources/Version.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogUnrealSharp, Log, All);
 

@@ -38,13 +38,28 @@ public class Plugin
         }
         else
         {
-            _loadContext = new PluginLoadContext(assemblyName.Name!, new AssemblyDependencyResolver(assemblyPath), isCollectible);
+            _loadContext = CreateLoadContext(assemblyName.Name!, assemblyPath, isCollectible);
         }
     }
 
     public void AddModuleInterfaceInit(Func<IModuleInterface> initFunction)
     {
         _moduleInitFunctions.Add(initFunction);
+    }
+
+    // Factory method: creates the appropriate AssemblyLoadContext for the current runtime backend.
+    // Isolating the Mono/CoreCLR branch here keeps the constructor clean and reduces merge conflicts
+    // when upstream changes the constructor signature.
+    private static AssemblyLoadContext CreateLoadContext(string pluginName, string assemblyPath, bool isCollectible)
+    {
+#if UNREALSHARP_MONO
+        // Mono does not support AssemblyDependencyResolver (requires CoreCLR hostpolicy).
+        // Use simple directory-based resolution instead.
+        string pluginDir = Path.GetDirectoryName(assemblyPath) ?? AppContext.BaseDirectory;
+        return new PluginLoadContext(pluginName, pluginDir, isCollectible);
+#else
+        return new PluginLoadContext(pluginName, new AssemblyDependencyResolver(assemblyPath), isCollectible);
+#endif
     }
 
     public bool Load()

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "Engine/EngineTypes.h"
 #include "CSMovementComponentExtensions.generated.h"
 
 class UMovementComponent;

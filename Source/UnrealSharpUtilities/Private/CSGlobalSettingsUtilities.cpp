@@ -37,7 +37,7 @@ void UnrealSharp::GlobalSettings::Private::InitializeConfigFile(const FString& P
 	{
 		TMap<FString, TSharedPtr<FJsonValue>> ProjectOverrides = LoadJsonAsDictionary(ProjectOverrideConfigPath);
 		
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& ProjectOverrideKVP : ProjectOverrides)
+		for (const auto& ProjectOverrideKVP : ProjectOverrides)
 		{
 			Config.Add(ProjectOverrideKVP.Key, ProjectOverrideKVP.Value);
 		}
@@ -82,9 +82,9 @@ TMap<FString, TSharedPtr<FJsonValue>> UnrealSharp::GlobalSettings::Private::Load
 		UE_LOG(LogUnrealSharpUtilities, Fatal, TEXT("Invalid JSON in config file: %s"), *Path);
 	}
 
-	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : JsonObject->Values)
+	for (const auto& Pair : JsonObject->Values)
 	{
-		Result.Add(Pair.Key, Pair.Value);
+		Result.Add(FString(Pair.Key), Pair.Value);
 	}
 
 	return Result;

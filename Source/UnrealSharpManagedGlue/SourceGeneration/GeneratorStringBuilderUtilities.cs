@@ -152,8 +152,13 @@ public static class GeneratorStringBuilderUtilities
     
     public static void AppendStackAlloc(this GeneratorStringBuilder stringBuilder, string sizeVariableName)
     {
-        stringBuilder.AppendLine($"byte* paramsBufferAllocation = stackalloc byte[{sizeVariableName}];");
-        stringBuilder.AppendLine("nint paramsBuffer = (nint) paramsBufferAllocation;");
+        // Over-allocate by 15 bytes and align to 16-byte boundary.
+        // stackalloc byte[N] only guarantees 1-byte alignment per the C# spec.
+        // On Mono INTERP + ARM64 (iOS/Android) the actual alignment can be as low as 1 byte,
+        // but UE's UScriptStruct::InitializeStruct calls checkf(IsAligned(ptr, alignment))
+        // for structs with CppStructOps (e.g. FHitResult, FButtonStyle).
+        stringBuilder.AppendLine($"byte* paramsBufferAllocation = stackalloc byte[{sizeVariableName} + 15];");
+        stringBuilder.AppendLine("nint paramsBuffer = (nint)((((nint)paramsBufferAllocation) + 15) & ~(nint)15);");
     }
 
     public static void AppendStackAllocFunction(this GeneratorStringBuilder stringBuilder, string sizeVariableName, string structName, bool appendInitializer = true)

@@ -94,4 +94,17 @@ public class BuildSolution : BuildCommand
 
         BuildSolutionProcess.StartProcess();
     }
+
+    /// <summary>
+    /// Injects UseMonoRuntime MSBuild property when Mono is configured in DefaultEngine.ini.
+    /// This ensures UNREALSHARP_MONO is defined in all managed DLLs without needing an explicit flag.
+    /// </summary>
+    public static void InjectMonoRuntimeProperty(string projectDirectory, IList<string> arguments)
+    {
+        if (MonoProjectSettings.IsMonoBuild(projectDirectory))
+        {
+            LoggerUtilities.LogUnrealSharpInfo("Mono mode detected (DefaultEngine.ini bUseMono=true). Adding -p:UseMonoRuntime=true.");
+            arguments.Add("-p:UseMonoRuntime=true");
+        }
+    }
 }

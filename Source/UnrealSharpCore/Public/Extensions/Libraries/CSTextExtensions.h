@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
 #include "CSTextExtensions.generated.h"
 
 UCLASS(meta = (InternalType))

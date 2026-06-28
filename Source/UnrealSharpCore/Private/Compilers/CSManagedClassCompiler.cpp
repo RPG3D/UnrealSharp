@@ -13,6 +13,8 @@
 #include "UnrealSharpUtils.h"
 #include "Subsystems/CSManagedSubsystemManager.h"
 #include "Utilities/CSClassUtilities.h"
+#include "GameFramework/Actor.h"
+#include "Components/ActorComponent.h"
 
 #if WITH_EDITOR
 #include "BlueprintActionDatabase.h"

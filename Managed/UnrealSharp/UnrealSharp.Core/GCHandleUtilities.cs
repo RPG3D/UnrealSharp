@@ -34,7 +34,10 @@ public static class GCHandleUtilities
         
         ConcurrentDictionary<GCHandle, object> strongReferences = StrongRefsByAssembly.GetOrAdd(loadContext, alcInstance =>
         {
+#if !UNREALSHARP_MONO
+            // Only subscribe to ALC unloading on CoreCLR; Mono does not support collectible ALCs.
             alcInstance.Unloading += OnAlcUnloading;
+#endif
             return new ConcurrentDictionary<GCHandle, object>();
         });
             

@@ -1,4 +1,5 @@
 ﻿using System.IO;
+using EpicGames.Core;
 using UnrealBuildTool;
 
 public class UnrealSharpCore : ModuleRules
@@ -14,9 +15,10 @@ public class UnrealSharpCore : ModuleRules
 		PublicDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"Core", 
-				"GameplayTags", 
+				"Core",
+				"GameplayTags",
 				"UnrealSharpUtilities",
+				"MonoSDK",
 			}
 			);
 		
@@ -44,7 +46,19 @@ public class UnrealSharpCore : ModuleRules
 
         PublicIncludePaths.AddRange(new string[] { ModuleDirectory });
         PublicDefinitions.Add("ForceAsEngineGlue=1");
-        PublicSystemIncludePaths.Add(Path.Combine(PluginDirectory, "Managed", "DotNetRuntime", "inc"));
+
+        // MonoSDK.Build.cs defines UNREALSHARP_MONO=1 (or =0) and links the Mono runtime.
+        // When Mono is active, the CoreCLR/hostfxr headers in DotNetRuntime/inc/ are not needed.
+        bool bUseMono = false;
+        ConfigHierarchy EngineIni = ConfigCache.ReadHierarchy(ConfigHierarchyType.Engine,
+            DirectoryReference.FromFile(Target.ProjectFile), Target.Platform);
+        EngineIni.GetBool("UnrealSharp", "bUseMono", out bUseMono);
+        if (!bUseMono)
+        {
+            PublicSystemIncludePaths.Add(Path.Combine(PluginDirectory, "Managed", "DotNetRuntime", "inc"));
+        }
+        // Pass USE_MONO_RUNTIME to UHT plugin so it can inject -p:UseMonoRuntime=true when building C# bindings.
+        PublicDefinitions.Add("USE_MONO_RUNTIME=" + (bUseMono ? 1 : 0));
 
 		if (Target.bBuildEditor)
 		{

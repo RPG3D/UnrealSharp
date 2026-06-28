@@ -1,4 +1,6 @@
 #include "Extensions/Libraries/CSPlayerControllerExtensions.h"
+#include "Engine/LocalPlayer.h"
+#include "GameFramework/PlayerController.h"
 
 ULocalPlayer* UCSPlayerControllerExtensions::GetLocalPlayer(APlayerController* PlayerController)
 {

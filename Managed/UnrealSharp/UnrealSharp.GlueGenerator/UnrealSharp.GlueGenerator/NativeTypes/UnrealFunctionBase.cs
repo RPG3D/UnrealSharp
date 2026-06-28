@@ -268,7 +268,11 @@ public abstract record UnrealFunctionBase : UnrealStruct
     public void ExportInvokeMethod(GeneratorStringBuilder builder)
     {
         builder.AppendEditorBrowsableAttribute();
-        builder.AppendLine($"void Invoke_{SourceName}(IntPtr buffer, IntPtr returnBuffer)");
+        // Use "internal" instead of implicit "private" to ensure Mono INTERP reflection
+        // (e.g. on iOS/Android) can reliably find these methods via GetMethods() / DeclaredMethods.
+        // Mono INTERP has a known bug where private methods in partial classes (source-generator side)
+        // may not be enumerable via reflection, but "internal" (METHOD_ATTRIBUTE_ASSEM) is stable.
+        builder.AppendLine($"internal void Invoke_{SourceName}(IntPtr buffer, IntPtr returnBuffer)");
         
         if (!HasParamsOrReturnValue)
         {
