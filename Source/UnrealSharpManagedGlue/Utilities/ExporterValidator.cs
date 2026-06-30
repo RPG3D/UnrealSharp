@@ -16,6 +16,8 @@ public static class ExporterValidator
         string generatedCodeDirectory = GeneratorStatics.PluginModule.OutputDirectory;
         string timestampFilePath = Path.Combine(generatedCodeDirectory, "Timestamp");
 
+        ConsoleUtilities.Log("timestampFilePath: " +timestampFilePath);
+
         if (!File.Exists(timestampFilePath) || !Directory.Exists(GeneratorStatics.PluginDirectory))
         {
             return true;

@@ -27,15 +27,7 @@ public:
 	virtual void OnUObjectArrayShutdown() override { GUObjectArray.RemoveUObjectDeleteListener(this); }
 	// End FUObjectDeleteListener overrides
 	
-	UNREALSHARPCORE_API static UCSManager& Get()
-	{
-		if (!Instance)
-		{
-			check(IsInGameThread());
-			Instance = NewObject<UCSManager>(GetTransientPackage(), "CSManager", RF_Public | RF_MarkAsRootSet);
-		}
-		return *Instance;
-	}
+	UNREALSHARPCORE_API static UCSManager& Get();
 	
 	UNREALSHARPCORE_API UPackage* FindOrAddManagedPackage(const FCSNamespace& Namespace);
 	UNREALSHARPCORE_API UPackage* GetPackage(const FCSNamespace& Namespace);

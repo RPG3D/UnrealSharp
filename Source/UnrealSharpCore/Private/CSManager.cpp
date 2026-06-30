@@ -110,6 +110,16 @@ void UCSManager::NotifyUObjectDeleted(const UObjectBase* Object, int32 Index)
 	}
 }
 
+UNREALSHARPCORE_API UCSManager& UCSManager::Get()
+{
+	if (!Instance)
+	{
+		check(IsInGameThread());
+		Instance = NewObject<UCSManager>(GetTransientPackage(), "CSManager", RF_Public | RF_MarkAsRootSet);
+	}
+	return *Instance;
+}
+
 UPackage* UCSManager::FindOrAddManagedPackage(const FCSNamespace& Namespace)
 {
 	if (UPackage* NativePackage = Namespace.TryGetAsNativePackage())

@@ -270,10 +270,7 @@ MonoDomain* InitializeMonoRuntime(const FString& RuntimeDir, const FString& Extr
 	mono_trace_set_log_handler(OnMonoLog, nullptr);
 	mono_trace_set_print_handler(OnMonoPrint);
 	mono_trace_set_printerr_handler(OnMonoPrint);
-	// "info" surfaces Mono's internal assembly-resolution / image-load trace through OnMonoLog,
-	// which is essential for diagnosing "UFS-load failed" / "entry point not found" issues.
-	// Lower to "warning" once packaging is verified stable.
-	mono_trace_set_level_string("info");
+	mono_trace_set_level_string("warning");
 
 	const FString RuntimeDirNormalized = FPaths::ConvertRelativePathToFull(RuntimeDir);
 
