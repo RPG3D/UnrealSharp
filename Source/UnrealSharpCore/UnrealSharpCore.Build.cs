@@ -41,7 +41,7 @@ public class UnrealSharpCore : ModuleRules
 				"UnrealSharpBinds",
 				"FieldNotification",
 				"InputCore",
-				"Json"
+					"Json",
 			});
 
         PublicIncludePaths.AddRange(new string[] { ModuleDirectory });

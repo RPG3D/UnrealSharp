@@ -4,6 +4,8 @@ Mono runtime support for UnrealSharp, enabling C# scripting on **Android** and *
 
 Reference: [UnrealCSharp](https://github.com/UnrealCSharp/UnrealCSharp) plugin (Mono embedding patterns).
 
+- **IDE Debugging**: Mono soft debugger agent with Visual Studio 2022 and JetBrains Rider support. Both IDEs can attach concurrently via independent debugger agents. See [IDE Debugging](#ide-debugging) below.
+
 ## Features
 
 - **Dual runtime**: CoreCLR (`bUseMono=false`) and Mono (`bUseMono=true`) coexist via `#if UNREALSHARP_MONO`, no code duplication required.
@@ -191,12 +193,59 @@ The build scripts automatically copy artifacts into the correct platform subdire
 | `Build/Scripts/BuildCommands/PackageProjectMono.cs` | Mono packaging command |
 | `Build/Scripts/Utilities/MonoProjectSettings.cs` | Read `bUseMono` from `DefaultEngine.ini` |
 | `Managed/Directory.Build.props` | Define `UNREALSHARP_MONO` when `UseMonoRuntime=true` |
+| `Source/UnrealSharpCore/Public/CSUnrealSharpSettings.h` | Mono debugger configuration (`MonoDebuggerPort`, etc.) |
 
 > See **Integration philosophy** above for why Mono logic lives in `*_Mono.*` / new files rather than inline `#if` blocks in upstream sources.
 
+## IDE Debugging
+
+Mono's built-in soft debugger agent allows Visual Studio 2026 and JetBrains Rider to set breakpoints, step through code, and inspect variables in C# scripts running inside Unreal Engine.
+
+### Configuration
+
+In **Project Settings → UnrealSharp → Debugging | Mono**:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `bMonoPerformanceMode` | `false` | Disable debugger entirely (auto `true` in Shipping) |
+| `bEnableMonoDebugger` | `false` | Enable in packaged builds (always on in Editor) |
+| `MonoDebuggerPort` | `56000` | Debugger agent listen port |
+| `bMonoWaitDebugger` | `false` | Suspend at startup until debugger attaches |
+
+Or in `Config/DefaultUnrealSharp.ini`:
+
+```ini
+[/Script/UnrealSharpCore.CSUnrealSharpSettings]
+MonoDebuggerPort=56000
+bMonoWaitDebugger=False
+```
+
+> ⚠️ Changing `MonoDebuggerPort` requires an Editor restart (Mono is already initialized).
+
+### Visual Studio 2026
+
+1. Start the Editor
+2. **Debug → Attach to Process → Connection type: Managed (.NET Core)**
+3. **Connection target:** `127.0.0.1:56000`
+
+### JetBrains Rider
+
+1. Start the Editor
+2. **Run → Attach to Process → Mono Remote →** `127.0.0.1:56000`
+
+### How it works
+
+`InitMonoDebugger()` in `CSMonoRuntime.cpp` starts a debugger agent via `mono_jit_parse_options("--debugger-agent=...")` + `mono_debug_init(MONO_DEBUG_FORMAT_MONO)`, called before `mono_jit_init_version()`.
+
+The runtime runs in **JIT mode** (the default). JIT mode is required because `MethodHandle.GetFunctionPointer()` — used by `UnmanagedCallbacks.GetManagedMethod` to resolve Blueprint method handles — only returns valid native pointers for JIT-compiled code. Mono's debugger agent uses **soft breakpoints**: it patches JIT-compiled native code with trap instructions at breakpoint locations, and the JIT generates debug metadata (stack frames, local variable info) alongside the compiled code. This means `GetFunctionPointer()` works correctly while the debugger can still set breakpoints, step through code, and inspect variables.
+
+> **Why not INTERP_ONLY?**  Setting `mono_jit_set_aot_mode(MONO_AOT_MODE_INTERP_ONLY)` disables JIT entirely. The debugger works well with the interpreter, but `GetFunctionPointer()` returns null for all methods — there is no compiled native code to point to. This causes `Failed to update method handle` fatal errors during Blueprint class compilation in the Editor.
+
+Reference: [bodong1987/UnrealSharp](https://github.com/bodong1987/UnrealSharp)
+
 ## TODO
 
-- **Debug support**: Remote debugging via `--debugger-agent` (Mono soft debugger) for Android/iOS devices. This is the highest priority item — without debugger support, troubleshooting C# scripts on device is impractical.
+- **Android/iOS remote debug**: Extend debugger agent support to mobile platforms.
 
 ## License
 

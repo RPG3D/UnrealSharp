@@ -3,6 +3,10 @@
 UCSUnrealSharpSettings::UCSUnrealSharpSettings()
 {
 	CategoryName = "Plugins";
+
+#if UE_BUILD_SHIPPING
+	bMonoPerformanceMode = true;
+#endif
 }
 
 #if WITH_EDITOR
