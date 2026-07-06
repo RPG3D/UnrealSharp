@@ -11,6 +11,9 @@
 #include "Misc/Paths.h"
 #include "HAL/PlatformFileManager.h"
 #include "GenericPlatform/GenericPlatformFile.h"
+#include "CSUnrealSharpSettings.h"
+#include <mono/metadata/mono-debug.h>
+#include <string>
 
 #if PLATFORM_IOS
 #include <dlfcn.h>
@@ -23,6 +26,9 @@ static TMap<FString, MonoAssembly*> LoadedMonoAssemblies;
 // Ordered list of directories to search for assemblies.
 // Populated once in InitializeMonoRuntime.
 static TArray<FString> GMonoAssemblySearchPaths;
+
+// True when InitMonoDebugger has been called and debugger is active.
+static bool GMonoDebuggerActive = false;
 
 // ============================================================================
 //  iOS BCL native library fallback loader
@@ -259,8 +265,75 @@ static void PurgeStaleOverrideDlls(const FString& SavedOverrideDir)
 #endif // !WITH_EDITOR
 
 // ============================================================================
+
+// ============================================================================
+//  InitMonoDebugger — must be called BEFORE mono_jit_init_version
+// ============================================================================
+
+bool IsMonoDebuggerActive() { return GMonoDebuggerActive; }
+
+void InitMonoDebugger(const UCSUnrealSharpSettings* Settings)
+{
+#if !UE_BUILD_SHIPPING
+	if (!Settings)
+	{
+		return;
+	}
+
+#if !WITH_EDITOR
+	if (!Settings->bEnableMonoDebugger)
+	{
+		return;
+	}
+#endif
+
+	const int32 Port = Settings->MonoDebuggerPort;
+	if (Port <= 0 || Port > 65535)
+	{
+		UE_LOG(LogUnrealSharp, Warning, TEXT("[Mono] InitMonoDebugger: invalid port %d, debugger disabled"), Port);
+		return;
+	}
+
+
+	FString LogArgs;
+	if (Settings->bUseMonoLogFile)
+	{
+		const FString LogFile = FPaths::Combine(
+			FPaths::ProjectIntermediateDir(), TEXT("UnrealSharp"), TEXT("mono.log"));
+		LogArgs = FString::Printf(TEXT(",loglevel=%d,logfile=%s"),
+			Settings->MonoLogLevel, *LogFile);
+	}
+
+		const bool bWait = Settings->bMonoWaitDebugger;
+		// embedding=n + suspend=y: external debugger, runtime waits for attach
+		// embedding=y + suspend=n: embedded debugger, runtime starts immediately
+	const FString Args = FString::Printf(
+		TEXT("--debugger-agent=transport=dt_socket,embedding=%s,server=y,suspend=%s%s,address=127.0.0.1:%d"),
+		bWait ? TEXT("n") : TEXT("y"),
+		bWait ? TEXT("y") : TEXT("n"),
+		*LogArgs, Port);
+
+	const std::string ArgStr(TCHAR_TO_ANSI(*Args));
+	const char* Options[] = { ArgStr.c_str() };
+
+	UE_LOG(LogUnrealSharp, Log,
+		TEXT("[Mono] InitMonoDebugger: port=%d, wait=%s"),
+		Port, Settings->bMonoWaitDebugger ? TEXT("yes") : TEXT("no"));
+
+	// Use JIT (not INTERP_ONLY) — INTERP_ONLY breaks MethodHandle.GetFunctionPointer()
+	// used by UnmanagedCallbacks.GetManagedMethod to resolve Blueprint method handles.
+	mono_jit_parse_options(1, (char**)Options);
+	mono_debug_init(MONO_DEBUG_FORMAT_MONO);
+
+	GMonoDebuggerActive = true;
+	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] Debugger agent started on 127.0.0.1:%d"), Port);
+#endif // !UE_BUILD_SHIPPING
+}
+
+// ============================================================================
 //  Main initialization
 // ============================================================================
+
 
 MonoDomain* InitializeMonoRuntime(const FString& RuntimeDir, const FString& ExtraSearchPaths)
 {
@@ -329,48 +402,53 @@ MonoDomain* InitializeMonoRuntime(const FString& RuntimeDir, const FString& Extr
 	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] MONO_THREADS_SUSPEND=preemptive"));
 #endif
 
-	// Step 2b: Platform-specific AOT mode
+	// Step 2b: Platform-specific AOT mode.
+	// When the debugger is active, InitMonoDebugger already configured
+	// AOT mode — skip to avoid overriding it.
+	if (!GMonoDebuggerActive)
+	{
 #if PLATFORM_IOS
-	{
-		extern void* mono_aot_module_System_Private_CoreLib_info;
+		{
+			extern void* mono_aot_module_System_Private_CoreLib_info;
 
-		UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] iOS: setting MONO_AOT_MODE_INTERP"));
-		mono_jit_set_aot_mode(MONO_AOT_MODE_INTERP);
+			UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] iOS: setting MONO_AOT_MODE_INTERP"));
+			mono_jit_set_aot_mode(MONO_AOT_MODE_INTERP);
 
-		UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] iOS: registering System.Private.CoreLib AOT module"));
-		mono_aot_register_module(static_cast<void**>(mono_aot_module_System_Private_CoreLib_info));
+			UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] iOS: registering System.Private.CoreLib AOT module"));
+			mono_aot_register_module(static_cast<void**>(mono_aot_module_System_Private_CoreLib_info));
 
-		// Resolve Mono.framework sub-Frameworks path
-		NSString* BundlePath = [[NSBundle mainBundle] bundlePath];
-		FString AppDir = FString(BundlePath);
-		GMonoFrameworksPath = FPaths::Combine(AppDir, TEXT("Frameworks"),
-			TEXT("Mono.framework"), TEXT("Frameworks"));
-		UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] iOS: BCL native lib path: %s"), *GMonoFrameworksPath);
+			// Resolve Mono.framework sub-Frameworks path
+			NSString* BundlePath = [[NSBundle mainBundle] bundlePath];
+			FString AppDir = FString(BundlePath);
+			GMonoFrameworksPath = FPaths::Combine(AppDir, TEXT("Frameworks"),
+				TEXT("Mono.framework"), TEXT("Frameworks"));
+			UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] iOS: BCL native lib path: %s"), *GMonoFrameworksPath);
 
-		UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] iOS: registering DL fallback for BCL native libs"));
-		mono_dl_fallback_register(OnMonoDlFallbackLoad, OnMonoDlFallbackSymbol,
-			OnMonoDlFallbackClose, nullptr);
+			UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] iOS: registering DL fallback for BCL native libs"));
+			mono_dl_fallback_register(OnMonoDlFallbackLoad, OnMonoDlFallbackSymbol,
+				OnMonoDlFallbackClose, nullptr);
 
-		setenv("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1", 1);
-		UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] iOS: DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1"));
-	}
+			setenv("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1", 1);
+			UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] iOS: DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1"));
+		}
 #else
-	{
-		const FString InterpFlagPath = FPaths::Combine(SavedOverrideDir, TEXT("mono_interp.flag"));
-		const bool bForceInterp = FPaths::FileExists(InterpFlagPath);
-		if (bForceInterp)
 		{
-			UE_LOG(LogUnrealSharp, Log,
-				TEXT("[Mono] mono_interp.flag found - forcing MONO_AOT_MODE_INTERP_ONLY"));
-			mono_jit_set_aot_mode(MONO_AOT_MODE_INTERP_ONLY);
+			const FString InterpFlagPath = FPaths::Combine(SavedOverrideDir, TEXT("mono_interp.flag"));
+			const bool bForceInterp = FPaths::FileExists(InterpFlagPath);
+			if (bForceInterp)
+			{
+				UE_LOG(LogUnrealSharp, Log,
+					TEXT("[Mono] mono_interp.flag found - forcing MONO_AOT_MODE_INTERP_ONLY"));
+				mono_jit_set_aot_mode(MONO_AOT_MODE_INTERP_ONLY);
+			}
+			else
+			{
+				UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] Using JIT (MONO_AOT_MODE_NONE)"));
+				mono_jit_set_aot_mode(MONO_AOT_MODE_NONE);
+			}
 		}
-		else
-		{
-			UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] Using JIT (MONO_AOT_MODE_NONE)"));
-			mono_jit_set_aot_mode(MONO_AOT_MODE_NONE);
-		}
-	}
 #endif
+	} // !GMonoDebuggerActive
 
 	// Step 3: Parse config
 	mono_config_parse(nullptr);

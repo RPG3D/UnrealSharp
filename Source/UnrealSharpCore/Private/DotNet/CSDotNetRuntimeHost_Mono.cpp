@@ -8,6 +8,7 @@
 
 #include "DotNet/CSDotNetRuntimeHost.h"
 #include "CSMonoRuntime.h"
+#include "CSUnrealSharpSettings.h"
 #include "CSBindsRegistry.h"
 #include "CSManagedCallbacksCache.h"
 #include "CSManagedPluginCallbacks.h"
@@ -106,7 +107,14 @@ bool FCSDotNetRuntimeHost::InitializeMonoHost()
 	const FString ExtraSearchPaths = UserWorkingDirectory;
 #endif
 
-	// --- 3. Initialize Mono runtime ---
+		// --- 3. Initialize Mono Debugger (before runtime init) ---
+		const UCSUnrealSharpSettings* Settings = GetDefault<UCSUnrealSharpSettings>();
+		if (Settings && !Settings->bMonoPerformanceMode)
+		{
+			InitMonoDebugger(Settings);
+		}
+
+		// --- 4. Initialize Mono runtime ---
 	MonoRootDomain = InitializeMonoRuntime(RuntimeDir, ExtraSearchPaths);
 	if (!MonoRootDomain)
 	{
@@ -114,7 +122,15 @@ bool FCSDotNetRuntimeHost::InitializeMonoHost()
 		return false;
 	}
 
-	// --- 4. Resolve and invoke the C# entry point via Mono Embedding API ---
+		// Wait for debugger if configured (avoids mono_coop_mutex_lock crash)
+		if (IsMonoDebuggerActive() && Settings && Settings->bMonoWaitDebugger)
+		{
+			const float SleepTime = Settings->MonoDelayStartTimeWhenWaitDebugger;
+			UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] Sleeping %.1f seconds for debugger attach..."), SleepTime);
+			FPlatformProcess::Sleep(SleepTime);
+		}
+
+	// --- 5. Resolve and invoke the C# entry point via Mono Embedding API ---
 	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] Assembly: %s"), *UnrealSharpLibraryAssembly);
 	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] User dir: %s"), *UserWorkingDirectory);
 

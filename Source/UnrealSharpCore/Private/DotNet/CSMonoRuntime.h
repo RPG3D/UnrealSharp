@@ -24,6 +24,24 @@
 // mono-config.h is not in this SDK's public headers; declare what we need directly.
 extern "C" void mono_config_parse(const char* filename);
 
+class UCSUnrealSharpSettings;
+
+/**
+ * Initialize the Mono soft debugger agent. Must be called BEFORE mono_jit_init_version.
+ *
+ * Starts a single debugger agent on 127.0.0.1:{MonoDebuggerPort} (default 56000).
+ * Both VS 2026 (Attach to Process → Managed .NET Core) and Rider
+ * (Mono Remote Debugger) can connect to this same port.
+ *
+ * Uses JIT mode — INTERP_ONLY breaks MethodHandle.GetFunctionPointer().
+ *
+ * @param Settings  UnrealSharp settings (reads debugger configuration).
+ */
+void InitMonoDebugger(const UCSUnrealSharpSettings* Settings);
+
+/** Returns true if the Mono debugger agent was successfully started. */
+bool IsMonoDebuggerActive();
+
 /**
  * Initialize the Mono runtime.
  *
