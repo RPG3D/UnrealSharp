@@ -46,15 +46,9 @@ FString UnrealSharp::Paths::GetUnrealSharpBuildToolPath()
 FString UnrealSharp::Paths::GetUserAssemblyDirectory()
 {
 #if (PLATFORM_ANDROID || PLATFORM_IOS) && !WITH_EDITOR
-    
-#if PLATFORM_ANDROID
     return IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(
-        *FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Managed"), TEXT("Android")));
-#elif PLATFORM_IOS
-    return IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(
-    *FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Managed"), TEXT("IOS")));
-#endif
-    
+        *FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Managed"), UTF8_TO_TCHAR(FPlatformProperties::PlatformName())));
+
 #else
     return FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectDir(), DotNetUtilities::GetManagedBinaries()));
 #endif

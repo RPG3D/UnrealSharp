@@ -1,27 +1,28 @@
-// CSDotNetRuntimeHost_Android.cpp
-// Android raw-CoreCLR backend for FCSDotNetRuntimeHost.
+// CSDotNetRuntimeHost_Mobile.cpp
+// Android + iOS raw-CoreCLR backend for FCSDotNetRuntimeHost.
 //
-// Android has no hostfxr, so we bootstrap CoreCLR through the low-level
-// coreclr_initialize / coreclr_create_delegate C API (coreclrhost.h). libcoreclr.so
-// is compile-time linked (CoreClrSDK.Build.cs PublicAdditionalLibraries), so we call
-// coreclr_* directly via their prototypes — no dlopen / GetDllExport string lookup.
-// Mirrors the verified AndroidClrDemo (app/src/cpp/clrdemo.c).
+// Mobile has no hostfxr, so we bootstrap CoreCLR through the low-level
+// coreclr_initialize / coreclr_create_delegate C API (coreclrhost.h). The runtime
+// library (libcoreclr.so / libcoreclr.dylib) is compile-time linked
+// (CoreClrSDK.Build.cs PublicAdditionalLibraries), so we call coreclr_* directly
+// via their prototypes — no dlopen / GetDllExport string lookup.
 //
 // Flow:
-//   1. EnsureRuntimeDllsExtracted() — copy BCL (NonUFS, CoreClrSDK/Android/runtime)
-//      + project DLLs + LoadOrder.json (UFS/PAK, Content/Managed/Android) into a
-//      writable runtime dir (ProjectSavedDir/Managed/Android). CoreCLR needs real
-//      OS filesystem paths for the TPA. A size pre-check + xxHash sidecar skips
-//      unchanged files so subsequent launches are fast.
+//   1. EnsureRuntimeDllsExtracted() — copy BCL + project DLLs + LoadOrder.json
+//      (UFS/PAK, Content/Managed/<Platform>) into a writable runtime dir
+//      (ProjectSavedDir/Managed/<Platform>). CoreCLR needs real OS filesystem
+//      paths for the TPA. A size pre-check + xxHash sidecar skips unchanged
+//      files so subsequent launches are fast.
 //   2. coreclr_set_error_writer → forward CoreCLR diagnostics to UE_LOG (logcat).
 //   3. BuildTpa() — colon-separated *.dll scan of the runtime dir (port of build_tpa()).
 //   4. coreclr_initialize with TRUSTED_PLATFORM_ASSEMBLIES / APP_CONTEXT_BASE_DIRECTORY /
-//      NATIVE_DLL_SEARCH_DIRECTORIES.
+//      NATIVE_DLL_SEARCH_DIRECTORIES. On iOS additionally passes HOST_RUNTIME_CONTRACT
+//      (pinvoke_override for __Internal + external_assembly_probe for System.Private.CoreLib).
 //   5. coreclr_create_delegate for UnrealSharp.Plugins.Main.InitializeUnrealSharp
 //      (type name WITHOUT assembly suffix) and invoke it with the same args as the
 //      desktop hostfxr path.
 //
-// Compiled only for PLATFORM_ANDROID. Android is a first-class supported platform.
+// Compiled for PLATFORM_ANDROID || PLATFORM_IOS.
 
 #if PLATFORM_ANDROID || PLATFORM_IOS
 #include <string>
@@ -54,6 +55,37 @@ static host_runtime_contract GHostContract;
 static const void* CoreClrPinvokeOverride(const char* LibraryName, const char* EntryPointName)
 {
 	return (strcmp(LibraryName, "__Internal") == 0) ? dlsym(RTLD_DEFAULT, EntryPointName) : nullptr;
+}
+
+static TArray<uint8> GSpclBytes;
+
+static FString GCoreClrExtractionDir;
+
+static bool CoreClrExternalAssemblyProbe(const char* Path, void** DataStart, int64* Size)
+{
+	const char* Name = strrchr(Path, '/');
+	Name = Name ? Name + 1 : Path;
+	
+	if (strcmp(Name, "System.Private.CoreLib.dll") != 0)
+	{
+		return false;
+	}
+	
+	if (GSpclBytes.Num() == 0)
+	{
+		FString SpclPath = FPaths::Combine(GCoreClrExtractionDir, TEXT("System.Private.CoreLib.dll"));
+	
+		if (!FFileHelper::LoadFileToArray(GSpclBytes, *SpclPath))
+		{
+			UE_LOG(LogUnrealSharp, Error, TEXT("[CoreClr] external_assembly_probe: SPCL not found at %s"), *SpclPath);
+			return false;
+		}
+		UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] external_assembly_probe: loaded SPCL at %s"), *SpclPath);
+	}
+	
+	*DataStart = GSpclBytes.GetData();
+	*Size = GSpclBytes.Num();
+	return true;
 }
 
 #endif
@@ -107,7 +139,7 @@ static void ExtractDirToRuntime(const FString& SourceDir, const FString& DestDir
 	if (!PF.DirectoryExists(*SourceDir))
 	{
 		UE_LOG(LogUnrealSharp, Warning,
-			TEXT("[CoreClr-Android] Source dir not found, skipping extraction: %s"), *SourceDir);
+			TEXT("[CoreClr] Source dir not found, skipping extraction: %s"), *SourceDir);
 		return;
 	}
 
@@ -135,7 +167,7 @@ static void ExtractDirToRuntime(const FString& SourceDir, const FString& DestDir
 			if (!FFileHelper::LoadFileToArray(SourceFileBytes, *SourceFile, FILEREAD_Silent))
 			{
 				UE_LOG(LogUnrealSharp, Error,
-					TEXT("[CoreClr-Android] Failed to read source file: %s"), *SourceFile);
+					TEXT("[CoreClr] Failed to read source file: %s"), *SourceFile);
 				continue;
 			}
 
@@ -157,7 +189,7 @@ static void ExtractDirToRuntime(const FString& SourceDir, const FString& DestDir
 			if (!FFileHelper::SaveArrayToFile(SourceFileBytes, *DestFile))
 			{
 				UE_LOG(LogUnrealSharp, Error,
-					TEXT("[CoreClr-Android] Failed to write runtime file: %s"), *DestFile);
+					TEXT("[CoreClr] Failed to write runtime file: %s"), *DestFile);
 				continue;
 			}
 
@@ -168,38 +200,31 @@ static void ExtractDirToRuntime(const FString& SourceDir, const FString& DestDir
 	}
 
 	UE_LOG(LogUnrealSharp, Log,
-		TEXT("[CoreClr-Android] Extracted %d, skipped %d (unchanged) from %s"),
+		TEXT("[CoreClr] Extracted %d, skipped %d (unchanged) from %s"),
 		Extracted, Skipped, *SourceDir);
 }
 
 bool FCSDotNetRuntimeHost::EnsureRuntimeDllsExtracted(FString& OutRuntimeDir, TArray<FString>& OutSourceDllNames)
 {
 	OutSourceDllNames.Reset();
-
+	const FString PlatformName = UTF8_TO_TCHAR(FPlatformProperties::PlatformName());
 #if PLATFORM_ANDROID
-	const TCHAR* PlatformName = TEXT("Android");
 	const TCHAR* ProjectPlatformDir = TEXT("Android");
 #elif PLATFORM_IOS
-	const TCHAR* PlatformName = TEXT("iOS");
-	const TCHAR* ProjectPlatformDir = TEXT("iOSSimulator");
+	// Project managed DLLs are cross-platform IL — simulator and device share the
+	// unified Content/Managed/IOS/ PAK dir. (BCL + native libs are arch-specific and
+	// staged from CoreClrSDK/{IOS|IOSSimulator}/ by CoreClrSDK.Build.cs.)
+	const TCHAR* ProjectPlatformDir = TEXT("IOS");
 #endif
 	
-	// Writable, app-private, OS-visible path on Android. We use ProjectSavedDir()
-	// (not ProjectPersistentDownloadDir): the latter is scanned by the PAK file
-	// platform (IPlatformFilePak.cpp ~L5124) as an override/mount root, which
-	// interferes with PAK reads of the managed DLLs. ProjectSavedDir on Android
-	// resolves under the app's files dir and does not collide with PAK mounts.
-	// (The earlier Mono-port note about SavedDir returning the SD root does not
-	// apply to this UE version / API.)
-	OutRuntimeDir = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(
-		*FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Managed"), PlatformName));
+	OutRuntimeDir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Managed"), PlatformName);
 
 	IPlatformFile& PF = FPlatformFileManager::Get().GetPlatformFile();
 	PF.CreateDirectoryTree(*OutRuntimeDir);
 
 	if (!PF.DirectoryExists(*OutRuntimeDir))
 	{
-		UE_LOGFMT(LogUnrealSharp, Fatal, "Failed to create Android CoreCLR runtime dir: {0}", *OutRuntimeDir);
+		UE_LOGFMT(LogUnrealSharp, Fatal, "Failed to create {0} CoreCLR runtime dir: {1}", PlatformName, *OutRuntimeDir);
 		return false;
 	}
 
@@ -237,13 +262,12 @@ bool FCSDotNetRuntimeHost::EnsureRuntimeDllsExtracted(FString& OutRuntimeDir, TA
 	if (!PF.FileExists(*PluginsDll))
 	{
 		UE_LOGFMT(LogUnrealSharp, Fatal,
-			"UnrealSharp.Plugins.dll not found in Android runtime dir after extraction: {0}. "
-			"Ensure the managed bindings were published to Content/Managed/Android/ and the "
-			"CoreClrSDK BCL is populated.", *PluginsDll);
+			"UnrealSharp.Plugins.dll not found in runtime dir after extraction: {0}. "
+			"Ensure the managed bindings were published to Content/Managed/{1}/ and the "
+			"CoreClrSDK BCL is populated.", *PluginsDll, ProjectPlatformDir);
 		return false;
 	}
 
-	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr-Android] Runtime dir: %s"), *OutRuntimeDir);
 	return true;
 }
 
@@ -276,18 +300,14 @@ FString FCSDotNetRuntimeHost::BuildTpa(const FString& RuntimeDir, const TArray<F
 		Tpa += FPaths::Combine(RuntimeDir, FileName);
 	}
 
-	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr-Android] TPA built: %d chars, %d assemblies"),
+	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] TPA built: %d chars, %d assemblies"),
 		Tpa.Len(), DllNames.Num());
 	return Tpa;
 }
 
 bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 {
-#if PLATFORM_ANDROID
-	const TCHAR* PlatformName = TEXT("Android");
-#elif PLATFORM_IOS
-	const TCHAR* PlatformName = TEXT("iOS");
-#endif
+	const FString PlatformName = UTF8_TO_TCHAR(FPlatformProperties::PlatformName());
 	
 	// 1. Prepare the writable runtime dir (extract BCL + project DLLs from PAK/NonUFS).
 	FString RuntimeDir;
@@ -297,10 +317,11 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 		UE_LOGFMT(LogUnrealSharp, Fatal, "Failed to prepare {0} CoreCLR runtime directory.",PlatformName);
 		return false;
 	}
+	
+	const FString CoreClrRuntimeDir = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*RuntimeDir);
 
 #if PLATFORM_IOS
-	NSString* NsBundlePath = [[NSBundle mainBundle] bundlePath];
-	RuntimeDir = FString([NsBundlePath UTF8String]);
+	GCoreClrExtractionDir = RuntimeDir;
 	setenv("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1", 1);
 #endif
 	
@@ -312,14 +333,14 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 	coreclr_set_error_writer(&CoreClrErrorWriter);
 
 	// 4. Build TRUSTED_PLATFORM_ASSEMBLIES.
-	const FString Tpa = BuildTpa(RuntimeDir, SourceDllNames);
+	const FString Tpa = BuildTpa(CoreClrRuntimeDir, SourceDllNames);
 	
 	// 5. coreclr_initialize. Keep UTF-8 std::strings alive across the call.
 	const std::string TpaUtf8 = TCHAR_TO_UTF8(*Tpa);
-	const std::string DirUtf8 = TCHAR_TO_UTF8(*RuntimeDir);
+	const std::string DirUtf8 = TCHAR_TO_UTF8(*CoreClrRuntimeDir);
 	
 #if PLATFORM_ANDROID
-	const std::string ExePathUtf8 = TCHAR_TO_UTF8(*(RuntimeDir / TEXT("UnrealSharp.Plugins.dll")));
+	const std::string ExePathUtf8 = TCHAR_TO_UTF8(*(CoreClrRuntimeDir / TEXT("UnrealSharp.Plugins.dll")));
 
 	const char* PropertyKeys[] = {
 		"TRUSTED_PLATFORM_ASSEMBLIES",
@@ -333,10 +354,11 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 	};
 	
 #elif PLATFORM_IOS
-	const std::string ExePathUtf8 = [[[[NSBundle mainBundle] executablePath] path] UTF8String];
+	const std::string ExePathUtf8 = [[[[NSBundle mainBundle] executableURL] path] UTF8String];
 	memset(&GHostContract, 0, sizeof(GHostContract));
 	GHostContract.size = sizeof(host_runtime_contract);
 	GHostContract.pinvoke_override = &CoreClrPinvokeOverride;
+	GHostContract.external_assembly_probe = &CoreClrExternalAssemblyProbe;
 	char ContractStr[32];
 	snprintf(ContractStr, sizeof(ContractStr), "0x%zx", reinterpret_cast<size_t>(&GHostContract));
 	
@@ -363,7 +385,7 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 	};
 	
 #endif
-	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr-%s] coreclr_initialize..."), PlatformName);
+	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] coreclr_initialize..."));
 	const int32 InitResult = coreclr_initialize(
 		ExePathUtf8.c_str(),
 		"UnrealSharp",
@@ -378,8 +400,8 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 		UE_LOGFMT(LogUnrealSharp, Fatal, "coreclr_initialize failed with code: 0x{0}", InitResult);
 		return false;
 	}
-	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr-%s] coreclr_initialize => 0x%x (domain %u)"),
-		PlatformName, InitResult, CoreClrDomainId);
+	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] coreclr_initialize => 0x%x (domain %u)"),
+		InitResult, CoreClrDomainId);
 
 	// 6. coreclr_create_delegate for the managed entry point.
 	// The type name is passed WITHOUT the assembly suffix (per AndroidClrDemo).
@@ -399,14 +421,14 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 			"[UnmanagedCallersOnly] static method.", DelegateResult);
 		return false;
 	}
-	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr-%s] coreclr_create_delegate => 0x%x, fn=%p"),
-		PlatformName, DelegateResult, (void*)InitializeUnrealSharp);
+	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] coreclr_create_delegate => 0x%x, fn=%p"),
+		DelegateResult, (void*)InitializeUnrealSharp);
 
 	// 7. Invoke the entry point with the same arguments as the desktop path.
 	// On Android TCHAR == char, so the TCHAR* args map directly to the managed
 	// char* / nint parameters. The working directory is the extracted runtime dir.
-	const FString UserWorkingDirectory = RuntimeDir;
-	const FString UnrealSharpLibraryAssembly = RuntimeDir / TEXT("UnrealSharp.Plugins.dll");
+	const FString UserWorkingDirectory = CoreClrRuntimeDir;
+	const FString UnrealSharpLibraryAssembly = CoreClrRuntimeDir / TEXT("UnrealSharp.Plugins.dll");
 
 	if (!InitializeUnrealSharp(*UserWorkingDirectory,
 		*UnrealSharpLibraryAssembly,
@@ -418,7 +440,7 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 		return false;
 	}
 
-	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr-%s] UnrealSharp initialized successfully."), PlatformName);
+	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] UnrealSharp initialized successfully."));
 	return true;
 }
 

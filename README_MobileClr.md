@@ -1,42 +1,42 @@
 # MobileClr — Android / iOS CoreCLR Support for UnrealSharp
 
-Unified Android (arm64) + iOS CoreCLR host for UnrealSharp. Mobile platforms have **no
-hostfxr**, so the runtime is bootstrapped via the raw `coreclr_initialize` /
-`coreclr_create_delegate` C API (`coreclrhost.h`) instead of the desktop hostfxr path.
-Managed IL is platform-agnostic — the same C# scripts authored for Win64 run on mobile.
+Android (arm64) + iOS CoreCLR host for UnrealSharp. Mobile has **no hostfxr**, so the
+runtime is bootstrapped via the raw `coreclr_initialize` / `coreclr_create_delegate`
+C API (`coreclrhost.h`). Managed IL is cross-platform — the same C# scripts run on
+Win64 and mobile.
 
-## Architecture
+## Platform status
 
-| Platform | Host | Runtime Library | Status |
-|----------|------|-----------------|--------|
-| Win64 | hostfxr | `hostfxr.dll` | ✅ |
-| Mac | hostfxr | `libhostfxr.dylib` | ✅ |
-| Android (arm64) | raw `coreclr_initialize` | `libcoreclr.so` | ✅ Verified |
-| iOS | raw `coreclr_initialize` | `libcoreclr.dylib` | 🚧 WIP |
+| Platform | Host | Runtime | Status |
+|---|---|---|---|
+| Win64 / Mac | hostfxr | hostfxr | ✅ |
+| Android (arm64) | raw `coreclr_initialize` | `libcoreclr.so` | ✅ verified |
+| iOS simulator | raw `coreclr_initialize` | `libcoreclr.dylib` | 🚧 in testing |
+| iOS device | raw `coreclr_initialize` | `libcoreclr.dylib` | 🚧 pending (`RUNTIME_IDENTIFIER` → `ios-arm64`) |
 
-Unified host: `CSDotNetRuntimeHost_Mobile.cpp` (replaces the old `_Android.cpp`).
-Platform dispatch: `#if PLATFORM_ANDROID || PLATFORM_IOS` in `CSDotNetRuntimeHost.h`.
+## Directory design
+
+| Content | Location | Arch-specific? |
+|---|---|---|
+| Project managed DLLs (IL) | `Content/Managed/{Android\|IOS}` — **simulator & device share `IOS`** | ❌ cross-platform IL |
+| BCL DLLs | source `CoreClrSDK/{Android\|IOS\|IOSSimulator}/runtime` → staged into `Content/Managed/{Android\|IOS}` (UFS/PAK) | ✅ source is arch-specific |
+| Native runtime libs | `CoreClrSDK/{Android\|IOS\|IOSSimulator}/lib` → APK `lib/` (APL) / `.app` bundle (RuntimeDependencies) | ✅ |
+
+Writable extraction dir (CoreCLR needs real OS paths for the TPA):
+`ProjectSavedDir/Managed/<PlatformName>` (from `FPlatformProperties::PlatformName()`).
 
 ## Packaging flow (reverse: publish managed BEFORE UAT)
 
-The upstream `PackageProject` publishes managed DLLs to `Binaries/Managed/` **after** UAT
-has archived the build. MobileClr reverses this: `PackageProjectMobile` publishes managed
-DLLs to `Content/Managed/<Platform>/` **before** UAT, so `CoreClrSDK.Build.cs` can stage
-them into the PAK during cook/stage.
-
 ### Step 1: Build native Game target
 
-Generates `UHT/Game/` glue (game-version, without `WITH_EDITOR`-only bindings).
+Generates `UHT/Game/` glue AND compiles the native lib (UBT won't recompile in Step 3).
 
 ```bash
-<EngineDir>/Engine/Build/BatchFiles/Build.bat <GameTarget> Win64 Development \
+<EngineDir>/Engine/Build/BatchFiles/Build.bat <GameTarget> Android Development \
   -Project="<ProjectDir>/<GameName>.uproject" -WaitMutex
 ```
 
-### Step 2: Publish managed DLLs → Content/Managed/<Platform>
-
-Uses the `PackageProjectMobile` UAT command (separate from upstream `PackageProject`,
-zero merge conflicts on update). Auto-derives output to `Content/Managed/<Platform>`.
+### Step 2: Publish managed → Content/Managed/<Platform>
 
 ```bash
 <EngineDir>/Engine/Build/BatchFiles/RunUAT.bat PackageProjectMobile \
@@ -47,22 +47,16 @@ zero merge conflicts on update). Auto-derives output to `Content/Managed/<Platfo
   -nocompileuat
 ```
 
-- `DisableWithEditor=true` strips `MSBuildLocator` (mobile has no dotnet SDK).
-- `--no-self-contained` — IL only; BCL is staged separately by `CoreClrSDK.Build.cs`.
-- Serial build (`-m:1`) — prevents parallel compilation races on shared `obj/` files.
-- Does NOT use `UseDefaultOutputPath` — writes to the plugin's flat
-  `Binaries/Managed/net10.0/` (where `Shared.props` HintPaths point), overwriting stale
-  `WITH_EDITOR` DLLs so the glue/user-script publishes resolve clean Game-version DLLs.
-  See `MSBUILD_LOCATOR.md`.
+- `-TargetPlatform=IOS` publishes to `Content/Managed/IOS` — **shared by simulator and
+  device** (no `bIOSSimulator` param, unlike the mono flow).
+- Order = bindings → glue → user solution (same as mono). `UETargetType=Game` excludes
+  editor-only code (`WITH_EDITOR` / `MSBuildLocator`) at reference level;
+  `StripEditorOnlyDlls` removes any stragglers post-publish.
+- `--no-self-contained` (IL only; BCL staged by `CoreClrSDK.Build.cs`), `-m:1` serial build.
+- **Verify:** `UnrealSharp.Plugins.dll` present, `Microsoft.Build.Locator.dll` absent,
+  2 `LoadOrder.json` files, ~9 DLLs.
 
-**Verify:** `UnrealSharp.Plugins.dll` present, `Microsoft.Build.Locator.dll` absent,
-2 `LoadOrder.json` files, ~9 DLLs.
-
-### Step 2.5: Build Editor target (force UHT)
-
-UAT cook launches `UnrealEditor-Cmd`, whose `VerifyCSharpEnvironment()` checks that the
-plugin's flat `Binaries/Managed/net10.0/UnrealSharp.Plugins.dll` exists. If `BuildBindings`
-skipped (UHT incremental), the flat stays empty → cook fails. **Force UHT re-export:**
+### Step 2.5: Force UHT re-export (for cook)
 
 ```bash
 rm -rf "<PluginDir>/Intermediate/Build/Win64/UnrealEditor/Inc/UnrealSharpCore/UHT/"
@@ -72,16 +66,7 @@ rm -rf "<PluginDir>/Intermediate/Build/Win64/UnrealEditor/Inc/UnrealSharpCore/UH
 
 ### Step 3: Package (Cook + Pak + Stage + Archive)
 
-`CoreClrSDK.Build.cs` + `CoreClrSDK_APL.xml` (Android) stage:
-- native `.so` → APK `lib/arm64-v8a/` (APL)
-- BCL `.dll` → NonUFS (outside PAK, from `CoreClrSDK/<Platform>/runtime/`)
-- project `.dll` / `.pdb` / `.json` → UFS (inside PAK, from `Content/Managed/<Platform>/`)
-
 ```bash
-export NDKROOT='<NDK path>'
-export ANDROID_NDK_ROOT="$NDKROOT"
-export ANDROID_HOME='<SDK path>'
-
 <EngineDir>/Engine/Build/BatchFiles/RunUAT.bat BuildCookRun \
   -project="<ProjectDir>/<GameName>.uproject" \
   -Build -Target=<GameTarget> -TargetPlatform=Android -ClientConfig=Development \
@@ -90,22 +75,27 @@ export ANDROID_HOME='<SDK path>'
 
 ### Step 4: Verify
 
-```bash
-ls -la "<ProjectDir>/Binaries/Android/<GameName>-arm64.apk"
-# Confirm MSBuildLocator did NOT leak:
-grep -ci "Microsoft.Build.Locator" \
-  "<ProjectDir>/Saved/StagedBuilds/Android/Manifest_UFSFiles_Android.txt"  # -> 0
-```
+Expected runtime logs:
 
-Expected runtime log:
 ```
-[CoreClr-Android] Extracted 27, skipped 178 (unchanged) from .../Content/Managed/Android
-[CoreClr-Android] Runtime dir: .../Saved/Managed/Android
-[CoreClr-Android] TPA built: 26648 chars, 181 assemblies
-[CoreClr-Android] coreclr_initialize => 0x0 (domain 1)
-[CoreClr-Android] coreclr_create_delegate => 0x0
+[CoreClr] Extracted 27, skipped 178 (unchanged) from .../Content/Managed/Android
+[CoreClr] TPA built: 26648 chars, 181 assemblies
+[CoreClr] coreclr_initialize => 0x0 (domain 1)
+[CoreClr] coreclr_create_delegate => 0x0
 UnrealSharp initialized successfully.
 ```
+
+## iOS notes
+
+- SDK fetch (on Mac): `FetchCoreClrSDK_iOS.sh` — copies the self-consistent DotNet10
+  runtime-pack (`iossimulator-arm64`) into `CoreClrSDK/iOSSimulator/{lib,runtime}`;
+  binaries are git-ignored.
+- `host_runtime_contract`: `pinvoke_override` resolves `__Internal` symbols via
+  `dlsym(RTLD_DEFAULT)`; `external_assembly_probe` feeds `System.Private.CoreLib.dll`
+  to CoreCLR from memory (loaded from the extraction dir).
+- dylibs staged into the `.app` bundle via `RuntimeDependencies` (NonUFS).
+- `RUNTIME_IDENTIFIER` is currently hardcoded `iossimulator-arm64` — parameterize to
+  `ios-arm64` before device testing.
 
 ## Key files
 
@@ -113,26 +103,8 @@ UnrealSharp initialized successfully.
 |------|---------|
 | `Source/UnrealSharpCore/Private/DotNet/CSDotNetRuntimeHost_Mobile.cpp` | Unified Android+iOS raw CoreCLR host |
 | `Source/UnrealSharpCore/Public/DotNet/CSDotNetRuntimeHost.h` | Platform dispatch (`#if PLATFORM_ANDROID \|\| PLATFORM_IOS`) |
-| `Source/ThirdParty/CoreClrSDK/CoreClrSDK.Build.cs` | Compile-time link + NonUFS/UFS staging + APL |
+| `Source/ThirdParty/CoreClrSDK/CoreClrSDK.Build.cs` | BCL/native staging + compile-time link |
 | `Source/ThirdParty/CoreClrSDK/CoreClrSDK_APL.xml` | Android `.so` → APK `lib/arm64-v8a/` |
-| `Source/ThirdParty/CoreClrSDK/include/coreclrhost.h` | Raw CoreCLR C API header |
-| `Source/ThirdParty/CoreClrSDK/include/host_runtime_contract.h` | iOS host runtime contract |
+| `Source/ThirdParty/CoreClrSDK/include/host_runtime_contract.h` | iOS host contract |
 | `Build/Scripts/BuildCommands/PackageProjectMobile.cs` | MobileClr reverse-flow publish command |
 | `Managed/UnrealSharp/UnrealSharp.Plugins/PluginLoadContext_Android.cs` | Android ALC fallback (partial class) |
-
-## SDK setup
-
-```bash
-# Fetch CoreCLR runtime + BCL from NuGet (binaries are git-ignored)
-Plugins\UnrealSharp\Source\ThirdParty\CoreClrSDK\FetchCoreClrSDK.bat   # Windows
-Plugins/UnrealSharp/Source/ThirdParty/CoreClrSDK/FetchCoreClrSDK.sh    # macOS / Linux
-```
-
-## iOS notes
-
-iOS support is WIP. The unified host (`CSDotNetRuntimeHost_Mobile.cpp`) compiles for both
-Android and iOS with `#if PLATFORM_ANDROID || PLATFORM_IOS`. Syntax errors fixed (2026-07-28).
-Pending:
-- iOS CoreCLR SDK binaries (`libcoreclr.dylib`, BCL) — `CoreClrSDK/iOS/` not yet populated
-- Platform directory logic (simulator vs device)
-- iOS native lib staging (no APL equivalent)

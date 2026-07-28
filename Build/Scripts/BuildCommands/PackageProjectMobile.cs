@@ -20,15 +20,18 @@ namespace UnrealSharp.Automation.BuildCommands;
 //
 // Key differences from PackageProject:
 //   - Output is always Content/Managed/<Platform> (derived from TargetPlatform, no PublishDir param).
-//   - TargetType is always Game (mobile client/game share the same managed IL; no UETargetType param).
+//   - UETargetType is always Game — the csproj gates WITH_EDITOR on UETargetType==Editor, so
+//     bindings/glue/user publishes are clean Game builds (no editor-only code, no MSBuildLocator
+//     reference; Android/iOS have no dotnet SDK so MSBuildLocator would throw at runtime).
 //   - MobileClr platforms (Android/iOS) use --no-self-contained (IL only; BCL is staged separately
 //     by CoreClrSDK.Build.cs; the raw coreclr_initialize host has no hostfxr/hostpolicy).
 //   - Does NOT pass -p:UseDefaultOutputPath=true. The default OutputPath (Directory.Build.props)
 //     writes to the plugin's flat Binaries/Managed/net10.0/, which is where UnrealSharp.Shared.props
 //     HintPaths point — overwrites any stale WITH_EDITOR build so glue/user-script publishes resolve
 //     the clean Game-version DLLs and don't pull MSBuildLocator transitively.
-//   - Always passes -p:DisableWithEditor=true (strips MSBuildLocator; Android/iOS have no dotnet SDK
-//     so MSBuildLocator's static init throws at runtime).
+//   - iOS: simulator and device share Content/Managed/IOS — project IL is architecture-independent;
+//     BCL + native libs are arch-specific and staged from CoreClrSDK/{IOS|IOSSimulator} by
+//     CoreClrSDK.Build.cs. StripEditorOnlyDlls() removes any editor-only DLLs that still leak.
 [Help("Packages the UnrealSharp managed code for a MobileClr (Android/iOS) build. Reverse flow: publish managed to Content/Managed/<Platform> BEFORE UAT.")]
 [Help("UEBuildConfig=<Config>", "REQUIRED. The build configuration (Debug, Development, Shipping, Test).")]
 [Help("TargetPlatform=<Platform>", "Optional. Target platform (Android, iOS). Defaults to Android.")]
@@ -73,9 +76,11 @@ public class PackageProjectMobile : BuildCommand
         Arguments.Add("--no-self-contained");
         Arguments.Add("-p:GenerateDocumentation=false");
 
+
         BuildBindingsSolution(Arguments, options.BuildConfiguration);
         BuildUserBindings(PublishFolder, options, Arguments);
         BuildUserSolution(PublishFolder, Arguments, options.BuildConfiguration, options.UserParams);
+        StripEditorOnlyDlls(PublishFolder);
 
         EmitInstalledFlagFile(PublishFolder);
 
@@ -87,7 +92,7 @@ public class PackageProjectMobile : BuildCommand
     /// </summary>
     private string GetPublishFolder(UnrealTargetPlatform platform)
     {
-        string platformDir = platform == UnrealTargetPlatform.Android ? "Android" : "iOS";
+        string platformDir = platform == UnrealTargetPlatform.Android ? "Android" : "IOS";
         return Path.Combine(this.GetProjectRootFolder(), "Content", "Managed", platformDir);
     }
 
@@ -108,7 +113,7 @@ public class PackageProjectMobile : BuildCommand
         LoggerUtilities.LogUnrealSharpInfo("MobileClr packaging project with parameters:");
         LoggerUtilities.LogUnrealSharpInfo($"Target Platform: {options.TargetPlatform}");
         LoggerUtilities.LogUnrealSharpInfo($"UE Build Configuration: {options.BuildConfiguration}");
-        LoggerUtilities.LogUnrealSharpInfo($"Output: Content/Managed/{(options.TargetPlatform == UnrealTargetPlatform.Android ? "Android" : "iOS")}");
+        LoggerUtilities.LogUnrealSharpInfo($"Output: Content/Managed/{(options.TargetPlatform == UnrealTargetPlatform.Android ? "Android" : "IOS")}");
 
         if (options.UserParams is { Length: > 0 })
         {
@@ -168,29 +173,10 @@ public class PackageProjectMobile : BuildCommand
     {
         List<string> args =
         [
-            // Serial build (-m:1) — prevents parallel compilation of bindings projects from
-            // racing on shared obj/ files (CS2012 "cannot open for write"). Combined with
-            // DOTNET_DISABLE_BUILD_SERVERS=1 (no VBCSCompiler), this is the reliable path.
-
             "-m:1",
-
-            // MobileClr: do NOT pass -p:UseDefaultOutputPath=true. The default OutputPath
-            // (Directory.Build.props) writes to the plugin's flat Binaries/Managed/net10.0/,
-            // which is where UnrealSharp.Shared.props HintPaths point. Writing there overwrites
-            // any stale WITH_EDITOR build so the glue/user-script publishes resolve the clean
-            // Game-version DLLs and don't pull MSBuildLocator transitively.
-
-            // No --runtime: managed IL is platform-agnostic. MobileClr doesn't use platform-specific
-            // NuGet deps (BCL staged separately by CoreClrSDK.Build.cs).
-
             $"-p:UETargetType={MobileTargetType}",
             $"-p:UEBuildConfig={options.BuildConfiguration}",
-
             $"-p:PublishDir=\"{publishFolder}\"",
-
-            // Strip editor-only code (MSBuildLocator, UnrealSharp.Editor). Android/iOS have no
-            // dotnet SDK, so MSBuildLocator's static init throws at runtime.
-            "-p:DisableWithEditor=true",
         ];
 
         return args;
@@ -289,5 +275,24 @@ public class PackageProjectMobile : BuildCommand
     {
         string InstalledFlagFilePath = Path.Combine(publishFolder, BuildUtilities.UnrealSharpBuildFlagFileName);
         File.WriteAllText(InstalledFlagFilePath, string.Empty);
+    }
+
+    private static void StripEditorOnlyDlls(string publishFolder)
+    {
+        string[] stripPatterns = { "Microsoft.Build.Locator.dll", "Microsoft.Build*.dll", "Microsoft.CodeAnalysis*.dll", "Newtonsoft.Json.dll" };
+        int removed = 0;
+        foreach (string stripPattern in stripPatterns)
+        {
+            foreach (string dll in Directory.GetFiles(publishFolder, stripPattern, SearchOption.AllDirectories))
+            {
+                File.Delete(dll);
+                removed++;
+            }
+        }
+
+        if (removed > 0)
+        {
+            LoggerUtilities.LogUnrealSharpInfo($"Stripped {removed} editor-only assemblies.");
+        }
     }
 }

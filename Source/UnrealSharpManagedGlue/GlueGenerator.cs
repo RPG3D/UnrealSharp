@@ -21,7 +21,7 @@ public static class GlueGenerator
         // skip reuses the SAME target's previous glue - no editor<->game cross-contamination.
         // The MSBuildLocator leak was a separate managed-DLL issue (plugin-local Binaries
         // HintPath transitive dep), not glue - see MSBUILD_LOCATOR.md.
-        string timestampPath = System.IO.Path.Combine(GeneratorStatics.PluginModule.OutputDirectory, "Timestamp");
-        System.IO.File.WriteAllText(timestampPath, System.DateTime.UtcNow.ToString("O"));
+        //string timestampPath = System.IO.Path.Combine(GeneratorStatics.PluginModule.OutputDirectory, "Timestamp");
+        //System.IO.File.WriteAllText(timestampPath, System.DateTime.UtcNow.ToString("O"));
     }
 }
