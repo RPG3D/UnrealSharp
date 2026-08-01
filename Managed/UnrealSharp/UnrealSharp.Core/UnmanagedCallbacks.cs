@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using UnrealSharp.Core.Attributes;
 using UnrealSharp.Core.Marshallers;
@@ -86,27 +87,26 @@ public static class UnmanagedCallbacks
         try
         {
             Type? type = GCHandleUtilities.GetObjectFromHandlePtr<Type>(typeHandlePtr);
-            
+
             if (type == null)
             {
                 throw new Exception("Invalid type handle");
             }
-            
-            string methodNameString = new string(methodName);
+
+            string methodNameString = new string((char*)methodName);
             BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
             Type? currentType = type;
-            
+
             while (currentType != null)
             {
                 MethodInfo? method = currentType.GetMethod(methodNameString, flags);
-
                 if (method != null)
                 {
                     IntPtr functionPtr = method.MethodHandle.GetFunctionPointer();
                     GCHandle methodHandle = GCHandleUtilities.AllocateStrongPointer(functionPtr, type.Assembly);
                     return GCHandle.ToIntPtr(methodHandle);
                 }
-                
+
                 currentType = currentType.BaseType;
             }
 
@@ -157,9 +157,10 @@ public static class UnmanagedCallbacks
     [UnmanagedCallersOnly]
     public static unsafe IntPtr GetManagedTypeHandle(IntPtr assemblyHandle, char* fullTypeName)
     {
+        // CRITICAL: Copy the native string FIRST before any native callbacks that could corrupt it.
+        string fullTypeNameString = new string((char*)fullTypeName);
         try
         {
-            string fullTypeNameString = new string(fullTypeName);
             Assembly? loadedAssembly = GCHandleUtilities.GetObjectFromHandlePtr<Assembly>(assemblyHandle);
 
             if (loadedAssembly == null)
@@ -206,9 +207,9 @@ public static class UnmanagedCallbacks
     
     [UnmanagedCallersOnly]
     public static unsafe int InvokeManagedMethod(IntPtr managedObjectHandle,
-        IntPtr methodHandlePtr, 
-        IntPtr argumentsBuffer, 
-        IntPtr returnValueBuffer, 
+        IntPtr methodHandlePtr,
+        IntPtr argumentsBuffer,
+        IntPtr returnValueBuffer,
         IntPtr exceptionTextBuffer)
     {
         try

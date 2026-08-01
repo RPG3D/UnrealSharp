@@ -1,6 +1,8 @@
 #include "DotNet/CSDotNetRuntimeHost.h"
 
+#if !UNREALSHARP_MONO || WITH_EDITOR
 #include <vector>
+#endif
 
 #include "CSBindsRegistry.h"
 #include "UnrealSharpCore.h"
@@ -11,10 +13,16 @@
 #include "Misc/Paths.h"
 #include "Logging/StructuredLog.h"
 
+#if UNREALSHARP_MONO
+#include "CSMonoRuntime.h"
+#endif
+
+#if !UNREALSHARP_MONO || WITH_EDITOR
 #ifdef _WIN32
 #define PLATFORM_STRING(string) string
 #else
 #define PLATFORM_STRING(string) TCHAR_TO_ANSI(string)
+#endif
 #endif
 
 #ifdef __clang__
@@ -28,6 +36,15 @@ FCSDotNetRuntimeHost::~FCSDotNetRuntimeHost()
 
 bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 {
+#if UNREALSHARP_MONO
+	// --- Mono path (packaged mobile builds) ---
+	if (!InitializeMonoHost())
+	{
+		UE_LOGFMT(LogUnrealSharp, Fatal, "Failed to initialize Mono host.");
+	}
+	return true;
+#else
+	// --- CoreCLR path (editor + desktop) ---
 	load_assembly_and_get_function_pointer_fn LoadAssemblyAndGetFunctionPointer = InitializeHost();
 	if (!LoadAssemblyAndGetFunctionPointer)
 	{
@@ -69,21 +86,29 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 #endif
 
 	return true;
+#endif // !UNREALSHARP_MONO
 }
 
 void FCSDotNetRuntimeHost::ShutdownManagedRuntime()
 {
+#if UNREALSHARP_MONO
+	ShutdownMonoRuntime(MonoRootDomain);
+	MonoRootDomain = nullptr;
+#endif
+#if !UNREALSHARP_MONO || WITH_EDITOR
 	if (RuntimeHost)
 	{
 		FPlatformProcess::FreeDllHandle(RuntimeHost);
 	}
-	
+
 	Hostfxr_InitForCommandLine = nullptr;
 	Hostfxr_InitForRuntimeConfig = nullptr;
 	Hostfxr_GetRuntimeDelegate = nullptr;
 	Hostfxr_Close = nullptr;
+#endif
 }
 
+#if !UNREALSHARP_MONO || WITH_EDITOR
 load_assembly_and_get_function_pointer_fn FCSDotNetRuntimeHost::InitializeHost()
 {
 	const FString RuntimeHostPath = UnrealSharp::DotNetUtilities::GetRuntimeHostPath();
@@ -197,3 +222,4 @@ load_assembly_and_get_function_pointer_fn FCSDotNetRuntimeHost::ConfigureRuntime
 
 	return reinterpret_cast<load_assembly_and_get_function_pointer_fn>(LoadAssemblyAndGetFunctionPointer);
 }
+#endif // !UNREALSHARP_MONO

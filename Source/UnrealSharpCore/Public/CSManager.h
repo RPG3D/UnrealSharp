@@ -123,5 +123,8 @@ private:
 	
 	bool bHasInitialized = false;
 	
-	static UCSManager* Instance;
+	// Exported (UNREALSHARPCORE_API) for cross-module access: on iOS the default
+	// symbol visibility is hidden, so referencing this static from another module
+	// fails to link (undefined symbol) unless it is exported.
+	static UNREALSHARPCORE_API UCSManager* Instance;
 };

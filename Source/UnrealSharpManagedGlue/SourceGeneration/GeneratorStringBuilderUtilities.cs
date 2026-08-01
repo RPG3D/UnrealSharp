@@ -169,8 +169,15 @@ public static class GeneratorStringBuilderUtilities
     
     public static void AppendStackAlloc(this GeneratorStringBuilder stringBuilder, string sizeVariableName)
     {
-        stringBuilder.AppendLine($"byte* paramsBufferAllocation = stackalloc byte[{sizeVariableName}];");
-        stringBuilder.AppendLine("nint paramsBuffer = (nint) paramsBufferAllocation;");
+        // 16-byte align the stackalloc'd param buffer. Under the Mono interpreter
+        // (INTERP mode, iOS/Android ARM64) stackalloc byte[N] only guarantees byte
+        // alignment, but UE structs with CppStructOps (e.g. FHitResult) require
+        // >= 8-byte alignment — UScriptStruct::InitializeStruct has
+        // checkf(IsAligned(ptr, alignment)) which crashes on a misaligned buffer.
+        // Over-allocate by 15 and round up: ((p + 15) & ~15). Mirrors the JIT path
+        // in UnrealSharp.GlueGenerator/StringBuilderExtensions.cs.
+        stringBuilder.AppendLine($"byte* paramsBufferAllocation = stackalloc byte[{sizeVariableName} + 15];");
+        stringBuilder.AppendLine("nint paramsBuffer = (nint)((((nint)paramsBufferAllocation) + 15) & ~(nint)15);");
     }
 
     public static void AppendStackAllocFunction(this GeneratorStringBuilder stringBuilder, string sizeVariableName, string structName, bool appendInitializer = true)

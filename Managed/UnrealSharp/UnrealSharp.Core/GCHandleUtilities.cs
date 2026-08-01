@@ -9,6 +9,12 @@ namespace UnrealSharp.Core;
 public static class GCHandleUtilities
 {
     private static readonly ConcurrentDictionary<AssemblyLoadContext, ConcurrentDictionary<GCHandle, object>> StrongRefsByAssembly = new();
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void OnAlcUnloading(AssemblyLoadContext alc)
+    {
+        StrongRefsByAssembly.TryRemove(alc, out _);
+    }
     
     public static GCHandle AllocateStrongPointer(object value, Assembly alc)
     {
@@ -28,6 +34,10 @@ public static class GCHandleUtilities
         
         ConcurrentDictionary<GCHandle, object> strongReferences = StrongRefsByAssembly.GetOrAdd(loadContext, alcInstance =>
         {
+#if !UNREALSHARP_MONO
+            // Only subscribe to ALC unloading on CoreCLR; Mono does not support collectible ALCs.
+            alcInstance.Unloading += OnAlcUnloading;
+#endif
             return new ConcurrentDictionary<GCHandle, object>();
         });
             
@@ -58,12 +68,12 @@ public static class GCHandleUtilities
 
         handle.Free();
     }
-    
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void FreeAssembly(Assembly assembly)
     {
         AssemblyLoadContext? assemblyLoadContext = AssemblyLoadContext.GetLoadContext(assembly);
-        
+
         if (assemblyLoadContext == null)
         {
             throw new InvalidOperationException("AssemblyLoadContext is null.");
@@ -73,13 +83,13 @@ public static class GCHandleUtilities
         {
             return;
         }
-        
+
         foreach (GCHandle handle in handles.Keys)
         {
             handle.Free();
         }
     }
-        
+
     public static T? GetObjectFromHandlePtr<T>(IntPtr handle)
     {
         if (handle == IntPtr.Zero)

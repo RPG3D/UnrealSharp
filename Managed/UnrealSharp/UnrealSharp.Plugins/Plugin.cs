@@ -39,13 +39,25 @@ public class Plugin
         }
         else
         {
-            _loadContext = new PluginLoadContext(assemblyName.Name!, new AssemblyDependencyResolver(assemblyPath), isCollectible);
+            _loadContext = CreateLoadContext(assemblyName.Name!, assemblyPath, isCollectible);
         }
     }
 
     public void AddModuleInterfaceInit(Func<IModuleInterface> initFunction)
     {
         _moduleInitFunctions.Add(initFunction);
+    }
+
+    // Factory method: creates the appropriate AssemblyLoadContext for the current runtime backend.
+    private static AssemblyLoadContext CreateLoadContext(string pluginName, string assemblyPath, bool isCollectible)
+    {
+#if UNREALSHARP_MONO
+        // Mono does not support AssemblyDependencyResolver (requires CoreCLR hostpolicy).
+        string pluginDir = Path.GetDirectoryName(assemblyPath) ?? AppContext.BaseDirectory;
+        return new PluginLoadContext(pluginName, pluginDir, isCollectible);
+#else
+        return new PluginLoadContext(pluginName, new AssemblyDependencyResolver(assemblyPath), isCollectible);
+#endif
     }
 
     public bool Load()
@@ -80,11 +92,11 @@ public class Plugin
     public WeakReference Unload()
     {
         ShutdownModule();
-        
+
         AssemblyCache.RemoveAssembly(AssemblyName.Name!);
         GCHandleUtilities.FreeAssembly((Assembly)Assembly!.Target!);
         Assembly = null;
-        
+
         WeakReference loadContextWeak = new WeakReference(_loadContext);
         _loadContext!.Unload();
         _loadContext = null;

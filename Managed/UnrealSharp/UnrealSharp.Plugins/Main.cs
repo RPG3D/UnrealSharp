@@ -2,12 +2,10 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
-using System.Runtime.InteropServices;
-using Microsoft.Build.Locator;
 using UnrealSharp.Binds;
 using UnrealSharp.Core;
 
-#if !PACKAGE
+#if !PACKAGE && !UNREALSHARP_MONO
 using Microsoft.Build.Locator;
 #endif
 
@@ -20,10 +18,10 @@ public static class Main
     {
         try
         {
-            #if WITH_EDITOR
+            #if WITH_EDITOR && !UNREALSHARP_MONO
             IEnumerable<VisualStudioInstance> instances = MSBuildLocator.QueryVisualStudioInstances();
             VisualStudioInstance? visualStudioInstance = instances.OrderByDescending(i => i.Version).FirstOrDefault();
-            
+
             if (visualStudioInstance is not null)
             {
                 MSBuildLocator.RegisterInstance(visualStudioInstance);
@@ -46,6 +44,11 @@ public static class Main
         catch (Exception exception)
         {
             Console.WriteLine(exception);
+#if UNREALSHARP_MONO
+            // Under Mono, write exception to a temp file so CSMonoRuntime.cpp can read it for diagnostics.
+            // On CoreCLR the exception propagates through hostfxr and is logged via standard channels.
+            try { System.IO.File.WriteAllText(Path.Combine(Path.GetTempPath(), "UnrealSharp_InitException.txt"), exception.ToString()); } catch { }
+#endif
             return NativeBool.False;
         }
     }

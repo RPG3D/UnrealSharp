@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using UnrealSharp.Engine.Core.Modules;
@@ -34,7 +34,15 @@ public static class PluginLoader
 		}
 		catch (Exception ex)
 		{
+#if UNREALSHARP_MONO
+			// Under Mono, avoid calling the logging system here because FMsgExporter may not yet
+			// be initialized (its .cctor calls NativeBinds.TryGetBoundFunction), causing
+			// re-entrant initialization and a crash. Write to a temp file instead.
+			try { System.IO.File.WriteAllText(Path.Combine(Path.GetTempPath(), "UnrealSharp_LoadPlugin_Exception.txt"), ex.ToString()); } catch { }
+			Console.WriteLine($"[Mono] LoadPlugin error: {ex}");
+#else
 			LogUnrealSharpPlugins.LogError($"An error occurred while loading the plugin: {ex.Message}");
+#endif
 		}
 
 		return null;
@@ -43,12 +51,12 @@ public static class PluginLoader
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	private static WeakReference? RemovePlugin(string assemblyName)
 	{
-		if (!Plugins.Remove(assemblyName, out Plugin? plugin))
+		if (!Plugins.Remove(assemblyName, out Plugin? value))
 		{
 			return null;
 		}
 
-		return plugin.Unload();
+		return value.Unload();
 	}
 
 	public static void UnloadPlugin(string assemblyPath)
@@ -56,6 +64,19 @@ public static class PluginLoader
 		TaskTracker.WaitForAllActiveTasks();
 
 		string assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
+
+#if UNREALSHARP_MONO
+		// Mono's native ALC layer forces collectible=FALSE, so ALC.Unload() is a
+		// no-op — the ALC and its assemblies are never reclaimed by GC. This path
+		// still releases managed GCHandles (FreeAssembly via Plugin.Unload) and
+		// discards the plugin's managed state. In the editor (hot reload) a new
+		// PluginLoadContext is created for the reloaded assembly; the old ALC is
+		// intentionally leaked (acceptable during development). Packaged runtime
+		// builds never call this path (no unload).
+		RemovePlugin(assemblyName);
+		LogUnrealSharpPlugins.Log($"[Mono] Unload requested for {assemblyName}. ALC is not collectible on Mono; managed handles released.");
+		return;
+#else
 		WeakReference? weakAlc = RemovePlugin(assemblyName);
 
 		if (weakAlc == null)
@@ -104,6 +125,7 @@ public static class PluginLoader
 		{
 			LogUnrealSharpPlugins.LogError($"An error occurred while unloading the plugin: {exception}");
 		}
+#endif
 	}
 
 	public static Plugin? FindPlugin(Type type)

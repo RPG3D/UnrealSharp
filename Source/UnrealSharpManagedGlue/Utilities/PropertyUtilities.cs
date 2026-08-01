@@ -141,8 +141,20 @@ public static class PropertyUtilities
             return false;
         }
 
+        // Compare case-insensitively: UHT SourceName casing varies across engine
+        // versions (e.g. 5.8 reports "worldContextObject" while the WorldContext
+        // metadata value is "WorldContextObject"). A case-sensitive match would
+        // fail to recognize the parameter and generate it as a regular argument,
+        // breaking hand-written extension signatures.
         string sourceName = property.SourceName;
-        return function.GetMetadata("WorldContext") == sourceName || sourceName is "WorldContextObject" or "WorldContext" or "ContextObject";
+        string? worldContextMeta = function.GetMetadata("WorldContext");
+        if (!string.IsNullOrEmpty(worldContextMeta) && worldContextMeta.Equals(sourceName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return sourceName.Equals("WorldContextObject", StringComparison.OrdinalIgnoreCase)
+            || sourceName.Equals("WorldContext", StringComparison.OrdinalIgnoreCase)
+            || sourceName.Equals("ContextObject", StringComparison.OrdinalIgnoreCase);
     }
     
     public static bool IsReadWrite(this UhtProperty property)

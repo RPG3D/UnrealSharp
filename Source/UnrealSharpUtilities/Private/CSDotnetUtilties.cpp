@@ -73,6 +73,23 @@ FString UnrealSharp::DotNetUtilities::GetDotNetExecutablePath()
 
 FString UnrealSharp::DotNetUtilities::GetLatestHostFxrPath()
 {
+#if UNREALSHARP_MONO
+    // Mono runtime (packaged builds): return the Mono runtime library path.
+#if PLATFORM_ANDROID
+    return FPaths::Combine(Paths::GetPluginDirectory(), TEXT("Source/ThirdParty"), TEXT("MonoSDK"),
+        FString(FPlatformProperties::PlatformName()), TEXT("lib"), TEXT("libmonosgen-2.0.so"));
+#elif PLATFORM_MAC
+    return FPaths::Combine(Paths::GetPluginDirectory(), TEXT("Source/ThirdParty"), TEXT("MonoSDK"),
+        FString(FPlatformProperties::PlatformName()), TEXT("lib"), TEXT("libcoreclr.dylib"));
+#elif PLATFORM_IOS
+    return TEXT("");
+#elif PLATFORM_WINDOWS
+    return FPaths::Combine(Paths::GetPluginDirectory(), TEXT("Source/ThirdParty"), TEXT("MonoSDK"),
+        TEXT("Win64"), TEXT("lib"), TEXT("coreclr.dll"));
+#else
+    #error "UNREALSHARP_MONO is not supported on this platform."
+#endif
+#else
     const FString DotNetRoot = GetDotNetDirectory();
     const FString HostFxrRoot = FPaths::Combine(DotNetRoot, TEXT("host"), TEXT("fxr"));
 
@@ -105,10 +122,15 @@ FString UnrealSharp::DotNetUtilities::GetLatestHostFxrPath()
 #else
     return FPaths::Combine(HostFxrRoot, HighestVersion, HOSTFXR_LINUX);
 #endif
+#endif // !UNREALSHARP_MONO
 }
 
 FString UnrealSharp::DotNetUtilities::GetRuntimeHostPath()
 {
+#if UNREALSHARP_MONO
+    // Mono runtime (packaged builds): use system dotnet hostfxr.
+    return GetLatestHostFxrPath();
+#else
     if (InstallationUtilities::IsUnrealSharpInstalled())
     {
 #if defined(_WIN32)
@@ -121,6 +143,7 @@ FString UnrealSharp::DotNetUtilities::GetRuntimeHostPath()
     }
 
     return GetLatestHostFxrPath();
+#endif
 }
 
 FString UnrealSharp::DotNetUtilities::GetRuntimeConfigPath()

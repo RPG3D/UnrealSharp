@@ -37,10 +37,16 @@ void UCSManagedInterfaceCompiler::Compile(UField* TypeToRecompile, const TShared
 	}
 
 	Interface->ClassConstructor = UInterface::StaticClass()->ClassConstructor;
-	
+
 	Interface->StaticLink(true);
 	Interface->Bind();
 	Interface->AssembleReferenceTokenStream();
+
+	// Bind managed method handles only after the interface is fully linked,
+	// for the same reason as UCSManagedClassCompiler::CompileClass — Mono's
+	// GetFunctionPointer() runs the class cctor during JIT compile.
+	FCSFunctionFactory::BindAllMethodHandles(Interface);
+
 	(void)Interface->GetDefaultObject();
 
 	RegisterFieldToLoader(TypeToRecompile, ENotifyRegistrationType::NRT_Class);

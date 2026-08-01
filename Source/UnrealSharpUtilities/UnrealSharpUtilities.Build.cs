@@ -9,9 +9,10 @@ public class UnrealSharpUtilities : ModuleRules
         PublicDependencyModuleNames.AddRange(
             new string[]
             {
-                "Core", 
-                "Json", 
+                "Core",
+                "Json",
                 "Projects",
+                "MonoSDK",
             }
         );
 
