@@ -11,6 +11,7 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Kismet2/StructureEditorUtils.h"
 #include "Types/CSScriptStruct.h"
+#include "UObject/UObjectIterator.h"
 #include "Utilities/CSAssemblyUtilities.h"
 #include "Utilities/CSClassUtilities.h"
 
@@ -129,7 +130,7 @@ void FCSHotReloadUtilities::RebuildDependentBlueprints(const TSet<FCSObjectID>& 
 		bool bNeedsRecompile = false;
 		for (const UEdGraph* Graph : Graphs)
 		{
-			for (const TObjectPtr Node : Graph->Nodes)
+			for (const TObjectPtr<UEdGraphNode>& Node : Graph->Nodes)
 			{
 				if (!IsNodeAffectedByReload(Node, RebuiltTypes))
 				{

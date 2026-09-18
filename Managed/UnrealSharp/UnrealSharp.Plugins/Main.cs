@@ -16,8 +16,12 @@ internal unsafe struct FCSInitializationResult
 
 internal static class Main
 {
+    // Public so coreclr_create_delegate can resolve it on Android/iOS (raw CoreCLR path).
+    // The desktop hostfxr path resolves via load_assembly_and_get_function_pointer and
+    // does not require public visibility, but [UnmanagedCallersOnly] methods cannot be
+    // invoked from managed code anyway, so making it public has no managed-call surface.
     [UnmanagedCallersOnly]
-    private static unsafe void InitializeUnrealSharp(
+    public static unsafe void InitializeUnrealSharp(
         byte* workingDirectoryUtf8,
         PluginsCallbacks* pluginCallbacks,
         nint bindsCallbacks,

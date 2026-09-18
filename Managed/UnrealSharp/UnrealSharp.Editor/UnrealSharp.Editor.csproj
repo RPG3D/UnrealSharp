@@ -3,7 +3,7 @@
     <Import Project="..\..\..\UnrealSharp.Shared.props" Condition="Exists('..\..\..\UnrealSharp.Shared.props')" />
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework>net11.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -12,6 +12,10 @@
         <IsEditorOnly>true</IsEditorOnly>
     </PropertyGroup>
 
+    <ItemGroup Condition="'$(DisableWithEditor)' == 'true'">
+        <Compile Remove="**\*.cs"/>
+    </ItemGroup>
+    
     <ItemGroup>
         <ProjectReference Include="..\UnrealSharp.Plugins\UnrealSharp.Plugins.csproj" />
         <ProjectReference Include="..\UnrealSharp.SourceGenerator.Utilities\UnrealSharp.SourceGenerator.Utilities.csproj" />
@@ -33,7 +37,7 @@
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
     </ItemGroup>
 
-    <ItemGroup>
+    <ItemGroup Condition="$(DisableWithEditor) !='true'">
         <Compile Include="..\..\..\Managed\Shared\*.cs" Link="..\..\..\Managed\Shared\*.cs" />
     </ItemGroup>
 </Project>

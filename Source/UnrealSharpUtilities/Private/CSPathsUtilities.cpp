@@ -6,6 +6,7 @@
 #include "CSProjectUtilities.h"
 #include "Interfaces/IPluginManager.h"
 #include "Logging/StructuredLog.h"
+#include "Misc/Paths.h"
 
 FString UnrealSharp::Paths::GetPluginDirectory()
 {
@@ -44,7 +45,13 @@ FString UnrealSharp::Paths::GetUnrealSharpBuildToolPath()
 
 FString UnrealSharp::Paths::GetUserAssemblyDirectory()
 {
+#if (PLATFORM_ANDROID || PLATFORM_IOS) && !WITH_EDITOR
+    return IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(
+        *FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Managed"), UTF8_TO_TCHAR(FPlatformProperties::PlatformName())));
+
+#else
     return FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectDir(), DotNetUtilities::GetManagedBinaries()));
+#endif
 }
 
 FString UnrealSharp::Paths::GetUnrealSharpMetadataPath()

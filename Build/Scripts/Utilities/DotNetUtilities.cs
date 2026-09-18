@@ -11,7 +11,7 @@ public struct DotnetVersionInfo
 
 public static class DotNetUtilities
 {
-	private const int DotnetMajorVersion = 10;
+	private const int DotnetMajorVersion = 11;
 
 	private static string? _cachedExecutable;
 	private static string? _cachedSdkPath;

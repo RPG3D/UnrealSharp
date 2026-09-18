@@ -1,0 +1,3 @@
+[submodule "Source/ThirdParty/CoreClrSDK"]
+	path = Source/ThirdParty/CoreClrSDK
+	url = git@github.com:RPG3D/CoreClrSDK.git

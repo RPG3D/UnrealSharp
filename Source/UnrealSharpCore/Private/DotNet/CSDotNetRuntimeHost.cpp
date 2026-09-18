@@ -20,6 +20,11 @@ FCSDotNetRuntimeHost::~FCSDotNetRuntimeHost()
 
 bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 {
+#if PLATFORM_ANDROID || PLATFORM_IOS
+
+	return InitializeManagedRuntimeMobile();
+	
+#else
 	load_assembly_and_get_function_pointer_fn LoadAssemblyAndGetFunctionPointer = InitializeHost();
 	if (!LoadAssemblyAndGetFunctionPointer)
 	{
@@ -73,10 +78,19 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 #endif
 
 	return true;
+#endif // !PLATFORM_IOS
 }
 
 void FCSDotNetRuntimeHost::ShutdownManagedRuntime()
 {
+#if PLATFORM_ANDROID || PLATFORM_IOS
+	if (CoreClrHandle)
+	{
+		coreclr_shutdown(CoreClrHandle, CoreClrDomainId);
+	}
+	CoreClrHandle = nullptr;
+	CoreClrDomainId = 0;
+#else
 	if (RuntimeHost)
 	{
 		FPlatformProcess::FreeDllHandle(RuntimeHost);
@@ -87,7 +101,14 @@ void FCSDotNetRuntimeHost::ShutdownManagedRuntime()
 	Hostfxr_InitForRuntimeConfig = nullptr;
 	Hostfxr_GetRuntimeDelegate = nullptr;
 	Hostfxr_Close = nullptr;
+#endif
 }
+
+// Desktop hostfxr plumbing below. Never called on mobile (InitializeManagedRuntime
+// routes to the raw CoreCLR host there), and it does not compile for Android/iOS:
+// hostfxr's char_t is plain `char` on those platforms while DotNetUtilities::FHostChar
+// is char8_t, so the StringCast results would need different conversions.
+#if !(PLATFORM_ANDROID || PLATFORM_IOS)
 
 FCSDotNetLayout FCSDotNetRuntimeHost::ResolveDotNetLayout(const FString& PluginAssemblyPath)
 {
@@ -192,9 +213,16 @@ load_assembly_and_get_function_pointer_fn FCSDotNetRuntimeHost::ConfigureRuntime
 	UE_LOGFMT(LogUnrealSharp, Log, "Runtime config is self-contained: {0}",
 	          DotNetUtilities::IsSelfContainedRuntimeConfig(Layout.RuntimeConfigPath));
 
-	const FString ExecutablePath = FPlatformProcess::ExecutablePath();
+	// FPaths produces forward-slash paths; hostfxr/coreclr reject them on Windows
+	// (coreclr_initialize fails with E_INVALIDARG, surfacing as 0x80008089 from
+	// hostfxr_get_runtime_delegate). Normalize to native separators.
+	const FString DotNetRootNative = Layout.DotNetRoot.Replace(TEXT("/"), TEXT("\\"));
+	const FString RuntimeConfigNative = Layout.RuntimeConfigPath.Replace(TEXT("/"), TEXT("\\"));
+	const FString HostPathNative = FString(FPlatformProcess::ExecutablePath()).Replace(TEXT("/"), TEXT("\\"));
 
-	DotNetUtilities::FHostStringConversion DotNetRootConv = StringCast<DotNetUtilities::FHostChar>(*Layout.DotNetRoot);
+	const FString ExecutablePath = HostPathNative;
+
+	DotNetUtilities::FHostStringConversion DotNetRootConv = StringCast<DotNetUtilities::FHostChar>(*DotNetRootNative);
 	DotNetUtilities::FHostStringConversion HostPathConv = StringCast<DotNetUtilities::FHostChar>(*ExecutablePath);
 
 	hostfxr_initialize_parameters InitializeParameters;
@@ -235,3 +263,5 @@ load_assembly_and_get_function_pointer_fn FCSDotNetRuntimeHost::ConfigureRuntime
 
 	return reinterpret_cast<load_assembly_and_get_function_pointer_fn>(LoadAssemblyAndGetFunctionPointer);
 }
+
+#endif // !(PLATFORM_ANDROID || PLATFORM_IOS)

@@ -14,9 +14,14 @@ public class UnrealSharpCore : ModuleRules
 		PublicDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"Core", 
-				"GameplayTags", 
+				"Core",
+				"GameplayTags",
 				"UnrealSharpUtilities",
+				// CoreClrSDK: External ThirdParty module (Source/ThirdParty/CoreClrSDK/).
+				// Activates unconditionally for Android (first-class platform, no opt-in switch):
+				// stages the CoreCLR native .so (via APL) + BCL (NonUFS) + project DLLs (UFS).
+				// No-op on every other platform. UBT auto-discovers its .Build.cs under Source/.
+				"CoreClrSDK",
 			}
 			);
 		

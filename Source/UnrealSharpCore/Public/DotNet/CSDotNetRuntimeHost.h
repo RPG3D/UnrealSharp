@@ -5,6 +5,10 @@
 #include <coreclr_delegates.h>
 #include <hostfxr.h>
 
+#if PLATFORM_ANDROID || PLATFORM_IOS
+#include <coreclrhost.h>
+#endif
+
 #include "HAL/PlatformProcess.h"
 
 struct FCSManagedCallbacks;
@@ -60,4 +64,15 @@ private:
 	hostfxr_close_fn Hostfxr_Close = nullptr;
 
 	void* RuntimeHost = nullptr;
+
+#if PLATFORM_ANDROID || PLATFORM_IOS
+	bool InitializeManagedRuntimeMobile();
+	
+	bool EnsureRuntimeDllsExtracted(FString& OutRuntimeDir, TArray<FString>& OutSourceDllNames);
+
+	FString BuildTpa(const FString& RuntimeDir, const TArray<FString>& SourceDllNames) const;
+
+	void* CoreClrHandle = nullptr;      // coreclr host handle (from coreclr_initialize)
+	unsigned int CoreClrDomainId = 0;   // app domain id (from coreclr_initialize)
+#endif
 };

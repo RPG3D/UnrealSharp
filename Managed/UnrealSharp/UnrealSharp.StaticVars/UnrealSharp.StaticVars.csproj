@@ -3,15 +3,15 @@
     <Import Project="..\..\..\UnrealSharp.AOT.props" Condition="Exists('..\..\..\UnrealSharp.AOT.props')" />
     
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework>net11.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
     <PropertyGroup>
-        <DefineConstants>WITH_EDITOR</DefineConstants>
-        <DefineConstants Condition="'$(DisableWithEditor)' == 'true'">$(DefineConstants.Replace('WITH_EDITOR;', '').Replace('WITH_EDITOR', ''))</DefineConstants>
+        <UETargetType Condition="'$(UETargetType)' == ''">Editor</UETargetType>
+        <DefineConstants Condition="'$(UETargetType)' == 'Editor'">WITH_EDITOR</DefineConstants>
         <DefineConstants Condition="'$(DefineAdditionalConstants)' != ''">$(DefineConstants);$(DefineAdditionalConstants)</DefineConstants>
     </PropertyGroup>
     
