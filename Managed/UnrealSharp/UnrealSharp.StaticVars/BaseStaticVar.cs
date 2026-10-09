@@ -17,8 +17,12 @@ public class FBaseStaticVar<T>
 #if WITH_EDITOR
     public FBaseStaticVar()
     {
+#if !UNREALSHARP_MONO
+        // Only subscribe to ALC unloading on CoreCLR; Mono does not support collectible
+        // ALCs (Unloading never fires on its non-collectible native ALC layer).
         AssemblyLoadContext alc = AssemblyLoadContext.GetLoadContext(GetType().Assembly)!;
         alc.Unloading += OnAlcUnloading;
+#endif
     }
 
     protected virtual void OnAlcUnloading(AssemblyLoadContext alc)

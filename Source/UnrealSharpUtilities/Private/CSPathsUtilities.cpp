@@ -30,7 +30,13 @@ FString UnrealSharp::Paths::GetPluginAssembliesPath()
 
 FString UnrealSharp::Paths::GetUnrealSharpPluginsPath()
 {
+#if UNREALSHARP_MONO && !WITH_EDITOR
+    // Mono packaged builds: UnrealSharp.Plugins.dll is in Content/Managed/<Platform>/ (inside PAK),
+    // alongside the user assemblies.
+    return GetUserAssemblyDirectory() / TEXT("UnrealSharp.Plugins.dll");
+#else
     return GetPluginAssembliesPath() / TEXT("UnrealSharp.Plugins.dll");
+#endif
 }
 
 FString UnrealSharp::Paths::GetUnrealSharpBuildToolPath()
@@ -44,7 +50,15 @@ FString UnrealSharp::Paths::GetUnrealSharpBuildToolPath()
 
 FString UnrealSharp::Paths::GetUserAssemblyDirectory()
 {
+#if UNREALSHARP_MONO && !WITH_EDITOR
+    // Mono packaged build: project DLLs are staged into Content/Managed/<Platform>/ and
+    // loaded from the PAK via UFS. The path must be absolute: FFileHelper::LoadFileToArray
+    // resolves UFS entries through IFileManager's pak mount, which keys on absolute paths.
+    return FPaths::ConvertRelativePathToFull(
+        FPaths::Combine(FPaths::ProjectContentDir(), TEXT("Managed"), DotNetUtilities::GetMonoManagedPlatformDir()));
+#else
     return FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectDir(), DotNetUtilities::GetManagedBinaries()));
+#endif
 }
 
 FString UnrealSharp::Paths::GetUnrealSharpMetadataPath()

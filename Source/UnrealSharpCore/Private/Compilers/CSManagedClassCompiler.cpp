@@ -115,7 +115,13 @@ void UCSManagedClassCompiler::CompileClass(TSharedPtr<FCSClassReflectionData> Cl
 	Field->Bind();
 	Field->StaticLink(true);
 	Field->AssembleReferenceTokenStream();
-	
+
+	// All functions are mounted and the class is linked — bind the managed
+	// method handles NOW. Binding earlier (per-function) makes Mono run the
+	// class cctor synchronously during GetFunctionPointer()'s JIT compile,
+	// against an incomplete class. (See FCSFunctionFactory::BindAllMethodHandles.)
+	FCSFunctionFactory::BindAllMethodHandles(Field);
+
 	CreateDeferredManagedCDO(Field);
 	FinalizeManagedCDO(Field);
 

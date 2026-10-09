@@ -26,6 +26,9 @@
 #include "CSUnrealSharpEditorSettings.h"
 #include "HotReload/CSHotReloadSubsystem.h"
 #include "Containers/Set.h"
+#if UNREALSHARP_MONO
+#include "CSDotnetUtilties.h"
+#endif
 #include "Settings/PlatformsMenuSettings.h"
 #include "Slate/SCSTypeWizard.h"
 
@@ -73,7 +76,9 @@ void FUnrealSharpEditorModule::StartupModule()
 	
 	UCSManager::Get().AddOrExecuteOnManagerInitialized(FCSManagerInitializedEvent::FDelegate::CreateLambda([this](UCSManager& Manager)
 	{
+#if !UNREALSHARP_MONO
 		Manager.LoadPluginAssemblyByName("UnrealSharp.Editor");
+#endif
 	}));
 }
 
@@ -468,6 +473,8 @@ void FUnrealSharpEditorModule::PackageProject()
 		return;
 	}
 
+#if !UNREALSHARP_MONO
+	// CoreCLR: validate that the executable exists in the archive directory
 	FString ExecutablePath = ArchiveDirectory / FApp::GetProjectName() + TEXT(".exe");
 	if (!FPaths::FileExists(ExecutablePath))
 	{
@@ -475,16 +482,25 @@ void FUnrealSharpEditorModule::PackageProject()
 		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(DialogText));
 		return;
 	}
-	
+#endif
+
 	const UProjectPackagingSettings* PlatformsPackagingSettings = GetDefault<UProjectPackagingSettings>();
-	
+
 	TMap<FString, FString> Arguments;
 	Arguments.Add(TEXT("ArchiveDirectory"), UnrealSharp::Paths::MakeQuotedPath(FPaths::Combine(ArchiveDirectory, FApp::GetProjectName())));
-	
+
 	int32 BuildConfigValue = static_cast<int32>(PlatformsPackagingSettings->BuildConfiguration);
 	UProjectPackagingSettings::FConfigurationInfo ConfigurationInfo = UProjectPackagingSettings::ConfigurationInfo[BuildConfigValue];
 	Arguments.Add(TEXT("UEBuildConfig"), ConfigurationInfo.Name.ToString());
 	Arguments.Add(TEXT("UETargetType"), TEXT("Game"));
+
+#if UNREALSHARP_MONO
+	// Mono packaging (PackageProjectMono) requires the explicit target platform;
+	// it publishes managed DLLs into Content/Managed/<Platform>/ before UAT.
+	// Use the SDK layout name ("Win64"/"Mac"/"IOS"...), not FPlatformProperties::PlatformName()
+	// which returns "Windows" on Win64 and would fail UnrealTargetPlatform::Parse.
+	Arguments.Add(TEXT("TargetPlatform"), UnrealSharp::DotNetUtilities::GetMonoManagedPlatformDir());
+#endif
 	
 	FText BuildActionDisplayName = FText::Format(LOCTEXT("PackagingInProgress", "Packaging C# Project '{0}'"), FText::FromString(FApp::GetProjectName()));
 	UnrealSharp::Build::InvokeUnrealSharpAutomation_Async(UnrealSharp::BuildAction::PackageProject, BuildActionDisplayName, &Arguments);

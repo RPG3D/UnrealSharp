@@ -157,14 +157,14 @@ public class PackageProject : BuildCommand
         }
     }
 
-    private static IList<string> BuildBaseArguments(string runtimeIdentifier, PackagingOptions options, string publishFolder)
+    private IList<string> BuildBaseArguments(string runtimeIdentifier, PackagingOptions options, string publishFolder)
     {
-        return
+        IList<string> arguments =
         [
             "--runtime", runtimeIdentifier,
 
             "-p:UseDefaultOutputPath=true",
-            
+
             $"-p:PublishSelfContained={(options.NativeAot ? "false" : "true")}",
 
             $"-p:UETargetType={options.TargetType}",
@@ -172,6 +172,12 @@ public class PackageProject : BuildCommand
 
             $"-p:PublishDir=\"{publishFolder}\"",
         ];
+
+        // Inject UseMonoRuntime when Mono is configured (ini), so UNREALSHARP_MONO is
+        // defined in all managed DLLs without needing an explicit flag.
+        BuildCommands.BuildSolution.InjectMonoRuntimeProperty(this.GetProjectRootFolder(), arguments);
+
+        return arguments;
     }
 
     private void BuildBindingsSolution(IList<string> arguments, UnrealTargetConfiguration buildConfig)

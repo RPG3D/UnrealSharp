@@ -9,9 +9,13 @@ public class UnrealSharpUtilities : ModuleRules
         PublicDependencyModuleNames.AddRange(
             new string[]
             {
-                "Core", 
-                "Json", 
+                "Core",
+                "Json",
                 "Projects",
+                // External ThirdParty module (Source/ThirdParty/MonoSDK/): defines UNREALSHARP_MONO=1/0
+                // (read from DefaultEngine.ini bUseMono) and links the Mono runtime. Public dependency
+                // so the define propagates through UnrealSharpCore -> UnrealSharpEditor.
+                "MonoSDK",
             }
         );
 

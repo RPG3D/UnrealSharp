@@ -52,7 +52,9 @@
 	],
 	"SupportedTargetPlatforms": [
 		"Win64",
-		"Mac"
+		"Mac",
+		"Android",
+		"IOS"
 	],
 	"Plugins": [
 		{

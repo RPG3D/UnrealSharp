@@ -11,6 +11,9 @@
 #include "Types/CSScriptStruct.h"
 #include "CSPathsUtilities.h"
 #include "CSProjectUtilities.h"
+#if UNREALSHARP_MONO
+#include "CSDotnetUtilties.h"
+#endif
 #include "HotReload/CSHotReloadUtilities.h"
 #include "Kismet2/StructureEditorUtils.h"
 #include "Utilities/CSAssemblyUtilities.h"
@@ -34,13 +37,21 @@ void UCSHotReloadSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	FEditorDelegates::ShutdownPIE.AddUObject(this, &UCSHotReloadSubsystem::OnStopPlayingPIE);
 
 	UnrealSharpEditorModule = &FUnrealSharpEditorModule::Get();
-	
+
+	RefreshDirectoryWatchers();
+
+#if !UNREALSHARP_MONO
+	// CoreCLR path: load Roslyn solution for incremental compilation.
+	// UnrealSharp.Editor.dll (Roslyn backend) is not loaded under Mono,
+	// so skip LoadSolutionAsync to avoid a null-pointer SIGSEGV.
 	FString PathToManagedSolution = UnrealSharp::Paths::GetPathToManagedSolution();
 	UnrealSharpEditorModule->GetManagedEditorCallbacks().LoadSolutionAsync(*PathToManagedSolution, (void*)&OnHotReloadReady_Callback);
-	
-	RefreshDirectoryWatchers();
-	
+
 	PauseHotReload(TEXT("Waiting for initial C# load..."));
+#else
+	// Mono path: hot reload is immediately ready (dotnet build is triggered on demand).
+	OnHotReloadReady();
+#endif
 }
 
 bool UCSHotReloadSubsystem::ShouldCreateSubsystem(UObject* Outer) const
@@ -124,6 +135,19 @@ void UCSHotReloadSubsystem::PerformHotReload()
 	TArray<UCSManagedAssembly*> AssembliesSortedByDependencies;
 	FCSAssemblyUtilities::SortAssembliesByDependencyOrder(PendingModifiedAssemblies, AssembliesSortedByDependencies);
 
+#if UNREALSHARP_MONO
+	// Mono path: use dotnet build (UnrealSharpBuildTool BuildEmitLoadOrder).
+	// GetManagedEditorCallbacks().RecompileDirtyProjects() requires UnrealSharp.Editor.dll
+	// (Roslyn backend) which is not loaded under Mono — calling it crashes with SIGSEGV.
+	if (!UnrealSharp::DotNetUtilities::BuildUserSolution())
+	{
+		CurrentHotReloadStatus = FailedToCompile;
+		FMessageDialog::Open(EAppMsgType::Ok,
+			LOCTEXT("MonoBuildFailed", "dotnet build failed. Check Output Log for details."),
+			FText::FromString(TEXT("C# Reload Failed")));
+		return;
+	}
+#else
 	FString ExceptionMessage;
 	if (!FCSHotReloadUtilities::RecompileDirtyProjects(AssembliesSortedByDependencies, ExceptionMessage))
 	{
@@ -131,6 +155,7 @@ void UCSHotReloadSubsystem::PerformHotReload()
 		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(ExceptionMessage), FText::FromString(TEXT("C# Compilation Failed")));
 		return;
 	}
+#endif
 	
 	PendingModifiedAssemblies.Reset();
 
@@ -231,9 +256,11 @@ void UCSHotReloadSubsystem::RefreshDirectoryWatchers()
 
 void UCSHotReloadSubsystem::OnStopPlayingPIE(bool IsSimulating)
 {
+#if !UNREALSHARP_MONO
 	// Replicate UE behavior, which forces a garbage collection when exiting PIE.
 	UnrealSharpEditorModule->GetManagedEditorCallbacks().ForceManagedGC();
-	
+#endif
+
 	if (GetDefault<UCSUnrealSharpEditorSettings>()->AutomaticHotReloading != Off)
 	{
 		PerformHotReload();
@@ -330,22 +357,25 @@ void UCSHotReloadSubsystem::HandleScriptFileChanges(const TArray<FFileChangeData
 		AppendPendingFileChange(ChangedFiles, ProjectName);
 		return;
 	}
-	
+
+#if !UNREALSHARP_MONO
+	// CoreCLR path: apply dirty-file patches and recompile via the Roslyn backend.
 	TArray<FCSHotReloadUtilities::FCSChangedFile> DirtiedFiles;
 	FCSHotReloadUtilities::CollectDirtiedFiles(CSharpFiles, DirtiedFiles);
-	
+
 	if (DirtiedFiles.IsEmpty())
 	{
 		return;
 	}
-	
+
 	FString ExceptionMessage;
 	if (!FCSHotReloadUtilities::ApplyDirtiedFiles(ProjectName.ToString(), DirtiedFiles, ExceptionMessage))
 	{
 		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(ExceptionMessage), FText::FromString(TEXT("C# Hot Reload Error")));
 		return;
 	}
-	
+#endif
+
 	UCSManagedAssembly* ModifiedAssembly = UCSManager::Get().FindAssembly(ProjectName);
 	if (!PendingModifiedAssemblies.Contains(ModifiedAssembly))
 	{

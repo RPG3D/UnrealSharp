@@ -184,16 +184,46 @@ void FCSFunctionFactory::AddFunctionToOuter(UClass* Outer, UCSFunctionBase* Func
 	Outer->AddFunctionToFunctionMap(Function, Function->GetFName());
 }
 
+void FCSFunctionFactory::BindAllMethodHandles(UClass* Outer)
+{
+	// IncludeSuper: inherited UCSFunctionBase functions are already bound by
+	// their owning class' registration; UpdateMethodHandle() early-outs on
+	// HasValidMethodHandle(), so re-visiting them here is a no-op.
+	//
+	// NOTE: we must NOT filter with TFieldIterator<UCSFunctionBase> here.
+	// UCSFunctionBase declares no dedicated ClassCastFlags — it inherits
+	// UFunction's CASTCLASS_UFunction, so the iterator's castflag test matches
+	// EVERY UFunction in the class (native/BP functions, engine functions, ...),
+	// yielding an arbitrary UFunction cast to UCSFunctionBase*. Iterate all
+	// UFunction fields and filter with an explicit Cast<> instead.
+	for (TFieldIterator<UFunction> It(Outer, EFieldIteratorFlags::IncludeSuper); It; ++It)
+	{
+		UCSFunctionBase* Function = Cast<UCSFunctionBase>(*It);
+		if (!Function)
+		{
+			continue;
+		}
+
+		// Skeleton classes are skipped inside UpdateMethodHandle() (see
+		// CSFunction.cpp) — they are transient compile artifacts that must not
+		// trigger JIT/cctor work; the generated class binds later.
+		if (!Function->UpdateMethodHandle())
+		{
+			UE_LOGFMT(LogUnrealSharp, Fatal, "Failed to update method handle for function {0} in class {1}.", *Function->GetName(), *Outer->GetName());
+		}
+	}
+}
+
 void FCSFunctionFactory::FinalizeFunctionSetup(UClass* Outer, UCSFunctionBase* Function)
 {
 	Function->Next = Outer->Children;
 	Outer->Children = Function;
-	
+
 	// Mark the function as Native so we can override with InvokeManagedMethod/InvokeManagedMethod_Params and call into C#
 	Function->FunctionFlags |= FUNC_Native;
-	
+
 	Function->StaticLink(true);
-	
+
 	if (Function->NumParms == 0)
 	{
 		Outer->AddNativeFunction(*Function->GetName(), &UCSFunctionBase::InvokeManagedMethod);
@@ -202,14 +232,16 @@ void FCSFunctionFactory::FinalizeFunctionSetup(UClass* Outer, UCSFunctionBase* F
 	{
 		Outer->AddNativeFunction(*Function->GetName(), &UCSFunction_Params::InvokeManagedMethod_Params);
 	}
-	
+
 	Function->Bind();
 	Outer->AddFunctionToFunctionMap(Function, Function->GetFName());
 
-	if (!Function->UpdateMethodHandle())
-	{
-		UE_LOGFMT(LogUnrealSharp, Fatal, "Failed to update method handle for function {0} in class {1}.", *Function->GetName(), *Outer->GetName());
-	}
+	// NOTE: managed method handle binding is deliberately deferred to
+	// FCSFunctionFactory::BindAllMethodHandles(), called by the class/interface
+	// compilers after ALL functions are mounted and the class is StaticLink()ed.
+	// Binding here (per-function, mid-registration) would make Mono run the
+	// class cctor (via GetFunctionPointer -> JIT compile -> mono_runtime_class_init_full)
+	// while the class is still incomplete, crashing on not-yet-mounted functions.
 }
 
 UCSFunctionBase* FCSFunctionFactory::CreateFunction_Internal(UClass* Outer, const FName& Name, const FCSFunctionReflectionData& FunctionReflectionData, EFunctionFlags FunctionFlags, UStruct* ParentFunction)

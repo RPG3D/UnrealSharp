@@ -1,6 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-    <Import Project="..\..\..\UnrealSharp.Shared.props" Condition="Exists('..\..\..\UnrealSharp.Shared.props')" />
+    <!-- NOTE: deliberately does NOT import UnrealSharp.Shared.props. This is a plugin-internal
+         project: everything Shared.props provides (flat Binaries HintPath references + flat
+         analyzers) is either supplied here via ProjectReference(-Analyzer) or unwanted. When
+         the flat DLLs exist (after any prior managed build) they can be STALER than the
+         ProjectReference outputs and shadow them at compile time (missing freshly generated
+         namespaces, duplicated generator members → CS0234/CS0111). Upstream CI never sees this
+         because it builds from a checkout where the flat copies do not exist yet.
+         UnrealSharp.Build.props is imported directly for the WITH_* DefineConstants. -->
+    <Import Project="..\..\..\UnrealSharp.AOT.props" Condition="Exists('..\..\..\UnrealSharp.AOT.props')" />
+    <Import Project="..\..\..\UnrealSharp.Build.props" Condition="Exists('..\..\..\UnrealSharp.Build.props')" />
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>

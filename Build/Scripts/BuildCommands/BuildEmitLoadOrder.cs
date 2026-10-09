@@ -56,6 +56,9 @@ public class BuildEmitLoadOrder : BuildCommand
             $"-p:PublishDir={outputPath}"
         };
 
+        // Inject UseMonoRuntime when Mono is configured, so UNREALSHARP_MONO is defined in all managed DLLs.
+        BuildCommands.BuildSolution.InjectMonoRuntimeProperty(this.GetProjectRootFolder(), Arguments);
+
         string[] Clp = ParseParamValues("clp");
         if (Clp.Length > 0)
         {

@@ -29,7 +29,9 @@ internal static class Main
             AppDomain.CurrentDomain.SetData("APP_CONTEXT_BASE_DIRECTORY",
                 Marshal.PtrToStringUTF8((nint)workingDirectoryUtf8)!);
 
-#if WITH_EDITOR
+#if WITH_EDITOR && !UNREALSHARP_MONO
+            // Microsoft.Build.Locator is not usable under the Mono BCL (the Roslyn-based
+            // editor backend is not loaded at all on Mono; hot reload goes through dotnet build).
             TryRegisterMSBuild();
 #endif
 

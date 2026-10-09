@@ -9,9 +9,15 @@
 #include "Misc/Paths.h"
 #include "Logging/StructuredLog.h"
 
+#if UNREALSHARP_MONO
+#include "CSMonoRuntime.h"
+#endif
+
 using namespace UnrealSharp;
 
+#if !UNREALSHARP_MONO || WITH_EDITOR
 static_assert(sizeof(DotNetUtilities::FHostChar) == sizeof(char_t), "FHostChar does not match hostfxr's char_t.");
+#endif
 
 FCSDotNetRuntimeHost::~FCSDotNetRuntimeHost()
 {
@@ -20,6 +26,15 @@ FCSDotNetRuntimeHost::~FCSDotNetRuntimeHost()
 
 bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 {
+#if UNREALSHARP_MONO
+	// --- Mono path (unified editor + packaged runtime, selected at build time) ---
+	if (!InitializeMonoHost())
+	{
+		UE_LOGFMT(LogUnrealSharp, Fatal, "Failed to initialize Mono host.");
+	}
+	return true;
+#else
+	// --- CoreCLR path (upstream default: hostfxr) ---
 	load_assembly_and_get_function_pointer_fn LoadAssemblyAndGetFunctionPointer = InitializeHost();
 	if (!LoadAssemblyAndGetFunctionPointer)
 	{
@@ -73,10 +88,17 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 #endif
 
 	return true;
+#endif // UNREALSHARP_MONO
 }
 
 void FCSDotNetRuntimeHost::ShutdownManagedRuntime()
 {
+#if UNREALSHARP_MONO
+	ShutdownMonoRuntime(MonoRootDomain);
+	MonoRootDomain = nullptr;
+#endif
+
+#if !UNREALSHARP_MONO || WITH_EDITOR
 	if (RuntimeHost)
 	{
 		FPlatformProcess::FreeDllHandle(RuntimeHost);
@@ -87,8 +109,10 @@ void FCSDotNetRuntimeHost::ShutdownManagedRuntime()
 	Hostfxr_InitForRuntimeConfig = nullptr;
 	Hostfxr_GetRuntimeDelegate = nullptr;
 	Hostfxr_Close = nullptr;
+#endif // !UNREALSHARP_MONO || WITH_EDITOR
 }
 
+#if !UNREALSHARP_MONO || WITH_EDITOR
 FCSDotNetLayout FCSDotNetRuntimeHost::ResolveDotNetLayout(const FString& PluginAssemblyPath)
 {
 	const FString RuntimeDirectory = FPaths::GetPath(PluginAssemblyPath);
@@ -235,3 +259,4 @@ load_assembly_and_get_function_pointer_fn FCSDotNetRuntimeHost::ConfigureRuntime
 
 	return reinterpret_cast<load_assembly_and_get_function_pointer_fn>(LoadAssemblyAndGetFunctionPointer);
 }
+#endif // !UNREALSHARP_MONO || WITH_EDITOR

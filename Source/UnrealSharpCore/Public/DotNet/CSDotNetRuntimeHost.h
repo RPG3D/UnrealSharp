@@ -2,10 +2,19 @@
 
 #include "CoreMinimal.h"
 
+// When Mono is the active runtime (bUseMono=true), the hostfxr machinery is not
+// used at all — under the unified Mono design the editor also runs Mono, so the
+// CoreCLR/hostfxr path compiles out entirely on Mono builds.
+#if !UNREALSHARP_MONO || WITH_EDITOR
 #include <coreclr_delegates.h>
 #include <hostfxr.h>
+#endif
 
 #include "HAL/PlatformProcess.h"
+
+#if UNREALSHARP_MONO
+typedef struct _MonoDomain MonoDomain;
+#endif
 
 struct FCSManagedCallbacks;
 struct FCSManagedPluginCallbacks;
@@ -42,6 +51,14 @@ public:
 	void ShutdownManagedRuntime();
 
 private:
+#if UNREALSHARP_MONO
+	// Mono backend (CSDotNetRuntimeHost_Mono.cpp). Selected at build time via
+	// bUseMono in DefaultEngine.ini (MonoSDK.Build.cs defines UNREALSHARP_MONO).
+	bool InitializeMonoHost();
+	MonoDomain* MonoRootDomain = nullptr;
+#endif
+
+#if !UNREALSHARP_MONO || WITH_EDITOR
 	static FCSDotNetLayout ResolveDotNetLayout(const FString& PluginAssemblyPath);
 
 	load_assembly_and_get_function_pointer_fn InitializeHost();
@@ -60,4 +77,5 @@ private:
 	hostfxr_close_fn Hostfxr_Close = nullptr;
 
 	void* RuntimeHost = nullptr;
+#endif // !UNREALSHARP_MONO || WITH_EDITOR
 };

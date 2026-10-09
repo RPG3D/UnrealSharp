@@ -36,15 +36,26 @@ void UCSFunctionBase::Bind()
 bool UCSFunctionBase::UpdateMethodHandle()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(UCSFunctionBase::UpdateMethodHandle);
-	
+
 	// Ignore delegate signatures and classes that are not the generated class.
 	// The Blueprint skeleton class is an example of a class that is not the generated class, but still has managed functions.
 	if (HasValidMethodHandle() || !IsOwnedByManagedClass() || GetOwnerClass()->HasAllClassFlags(CLASS_Interface))
 	{
 		return true;
 	}
-	
+
 	UCSClass* ManagedClass = static_cast<UCSClass*>(GetOwnerClass());
+
+	// Skip skeleton classes — they are temporary Blueprint compile artifacts.
+	// Binding managed method pointers here triggers Mono's cctor during
+	// GetFunctionPointer() while the Blueprint is still being compiled, crashing
+	// GetType(). Skeleton classes don't need managed bindings; the generated class
+	// is bound later when compilation is complete.
+	if (Cast<UCSSkeletonClass>(ManagedClass))
+	{
+		return true;
+	}
+
 	UCSManagedAssembly* Assembly = ManagedClass->GetOwningAssembly();
 	
 	TSharedPtr<FCSManagedTypeDefinition> ClassInfo = ManagedClass->GetManagedTypeDefinition();
@@ -86,9 +97,18 @@ void UCSFunctionBase::InvokeManagedMethod(UObject* ObjectToInvokeOn, FFrame& Sta
 
 #if WITH_EDITOR
 	// After a full reload, method pointers are stale, so we just lazy update them here.
-	if (!ManagedFunction->HasValidMethodHandle() && !ManagedFunction->UpdateMethodHandle())
+	if (!ManagedFunction->HasValidMethodHandle())
 	{
-		return;
+		if (!ManagedFunction->UpdateMethodHandle())
+		{
+			return;
+		}
+		// UpdateMethodHandle may return true without a handle (e.g. skeleton classes
+		// are intentionally skipped) — do not proceed with a null method handle.
+		if (!ManagedFunction->HasValidMethodHandle())
+		{
+			return;
+		}
 	}
 #endif
 

@@ -42,7 +42,12 @@
     <Analyzer Include="$(UnrealSharpPluginDir)Binaries\Managed\netstandard2.0\UnrealSharp.CodeFixer.dll" Private="false" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- Skippable via SkipIncludeAnalyzers=true: projects that reference the generators
+       through ProjectReference-Analyzer (e.g. UnrealSharp.Editor) must not ALSO pick up
+       these flat copies, or every generator runs twice and the duplicated generated
+       members fail the compile (CS0111). On a pristine checkout the flat DLLs do not
+       exist yet, which is why upstream CI never hits this. -->
+  <ItemGroup Condition="'$(SkipIncludeAnalyzers)' == ''">
     <Analyzer Include="$(UnrealSharpPluginDir)Binaries\Managed\netstandard2.0\UnrealSharp.SourceGenerators.dll" Private="false" CopyToPublishDirectory="Never" />
   </ItemGroup>
 </Project>

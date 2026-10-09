@@ -36,10 +36,11 @@ void UnrealSharp::GlobalSettings::Private::InitializeConfigFile(const FString& P
 	if (!ProjectOverrideConfigPath.IsEmpty())
 	{
 		TMap<FString, TSharedPtr<FJsonValue>> ProjectOverrides = LoadJsonAsDictionary(ProjectOverrideConfigPath);
-		
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& ProjectOverrideKVP : ProjectOverrides)
+
+		// auto& — same temporary-binding concern as the loop in LoadJsonAsDictionary.
+		for (const auto& ProjectOverrideKVP : ProjectOverrides)
 		{
-			Config.Add(ProjectOverrideKVP.Key, ProjectOverrideKVP.Value);
+			Config.Add(FString(ProjectOverrideKVP.Key), ProjectOverrideKVP.Value);
 		}
 	}
 }
@@ -82,9 +83,11 @@ TMap<FString, TSharedPtr<FJsonValue>> UnrealSharp::GlobalSettings::Private::Load
 		UE_LOG(LogUnrealSharpUtilities, Fatal, TEXT("Invalid JSON in config file: %s"), *Path);
 	}
 
-	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : JsonObject->Values)
+	// Iterate with auto& — the map key is a string type whose conversion to FString
+	// would bind a temporary to a const TPair& (-Werror,-Wrange-loop-construct).
+	for (const auto& Pair : JsonObject->Values)
 	{
-		Result.Add(Pair.Key, Pair.Value);
+		Result.Add(FString(Pair.Key), Pair.Value);
 	}
 
 	return Result;

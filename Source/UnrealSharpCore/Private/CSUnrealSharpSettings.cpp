@@ -3,6 +3,11 @@
 UCSUnrealSharpSettings::UCSUnrealSharpSettings()
 {
 	CategoryName = "Plugins";
+
+#if UE_BUILD_SHIPPING
+	// No debugger support in Shipping: avoid the soft-debugger overhead entirely.
+	bMonoPerformanceMode = true;
+#endif
 }
 
 #if WITH_EDITOR

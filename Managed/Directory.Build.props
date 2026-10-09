@@ -1,5 +1,8 @@
 <Project>
   <PropertyGroup>
     <OutputPath Condition="'$(UseDefaultOutputPath)' != 'true'">$(SolutionDir)..\..\Binaries\Managed\</OutputPath>
+    <!-- Injected by the automation scripts (-p:UseMonoRuntime=true) when bUseMono=true:
+         selects the Mono backend in all #if UNREALSHARP_MONO branches. -->
+    <DefineConstants Condition="'$(UseMonoRuntime)' == 'true'">$(DefineConstants);UNREALSHARP_MONO</DefineConstants>
   </PropertyGroup>
 </Project>

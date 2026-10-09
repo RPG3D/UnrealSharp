@@ -1,13 +1,16 @@
-﻿using System.Diagnostics;
-using System.Reflection;
-using System.Runtime.CompilerServices;
-using UnrealSharp.Engine.Core.Modules;
+	using System.Collections.Concurrent;
+	using System.Diagnostics;
+	using System.Reflection;
+	using System.Runtime.CompilerServices;
+	using UnrealSharp.Engine.Core.Modules;
 
 namespace UnrealSharp.Plugins;
 
 public static class PluginLoader
 {
-	private static readonly Dictionary<string, Plugin> Plugins = [];
+	// Concurrent: LoadPlugin can be reached from multiple threads (e.g. editor hot reload
+	// watchers + explicit loads); a plain Dictionary risks concurrent-modification corruption.
+	private static readonly ConcurrentDictionary<string, Plugin> Plugins = [];
 
 	public static Assembly? LoadPlugin(string assemblyPath, bool isCollectible)
 	{
@@ -21,11 +24,11 @@ public static class PluginLoader
 			}
 
 			Plugin plugin = new Plugin(assemblyName, isCollectible, assemblyPath);
-			Plugins.Add(assemblyName.Name!, plugin);
+			Plugins.TryAdd(assemblyName.Name!, plugin);
 
 			if (!plugin.Load())
 			{
-				Plugins.Remove(assemblyName.Name!);
+				Plugins.TryRemove(assemblyName.Name!, out _);
 				throw new InvalidOperationException($"Failed to load plugin: {assemblyName}");
 			}
 
@@ -34,7 +37,15 @@ public static class PluginLoader
 		}
 		catch (Exception ex)
 		{
+#if UNREALSHARP_MONO
+			// Under Mono, avoid calling the logging system here because FMsgExporter may not yet
+			// be initialized (its .cctor calls NativeBinds.TryGetBoundFunction), causing
+			// re-entrant initialization and a crash. Write to a temp file instead.
+			try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "UnrealSharp_LoadPlugin_Exception.txt"), ex.ToString()); } catch { }
+			Console.WriteLine($"[Mono] LoadPlugin error: {ex}");
+#else
 			LogUnrealSharpPlugins.LogError($"An error occurred while loading the plugin: {ex.Message}");
+#endif
 		}
 
 		return null;
@@ -56,6 +67,19 @@ public static class PluginLoader
 		TaskTracker.WaitForAllActiveTasks();
 
 		string assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
+
+#if UNREALSHARP_MONO
+		// Mono's native ALC layer forces collectible=FALSE, so ALC.Unload() is a
+		// no-op — the ALC and its assemblies are never reclaimed by GC. This path
+		// still releases managed GCHandles (FreeAssembly via Plugin.Unload) and
+		// discards the plugin's managed state. In the editor (hot reload) a new
+		// PluginLoadContext is created for the reloaded assembly; the old ALC is
+		// intentionally leaked (acceptable during development). Packaged runtime
+		// builds never call this path (no unload).
+		RemovePlugin(assemblyName);
+		LogUnrealSharpPlugins.Log($"[Mono] Unload requested for {assemblyName}. ALC is not collectible on Mono; managed handles released.");
+		return;
+#else
 		WeakReference? weakAlc = RemovePlugin(assemblyName);
 
 		if (weakAlc == null)
@@ -104,6 +128,7 @@ public static class PluginLoader
 		{
 			LogUnrealSharpPlugins.LogError($"An error occurred while unloading the plugin: {exception}");
 		}
+#endif
 	}
 
 	public static Plugin? FindPlugin(Type type)

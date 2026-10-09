@@ -84,14 +84,17 @@ public static class UnmanagedCallbacks
     {
         try
         {
+            // CRITICAL: Copy the native string FIRST before any native callbacks that could
+            // re-enter and invalidate the caller's buffer (matches GetManagedTypeHandle below).
+            string methodNameString = new string(methodName);
+
             Type? type = GCHandleUtilities.GetObjectFromHandlePtr<Type>(typeHandlePtr);
-            
+
             if (type == null)
             {
                 throw new Exception("Invalid type handle");
             }
-            
-            string methodNameString = new string(methodName);
+
             BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
             Type? currentType = type;
             

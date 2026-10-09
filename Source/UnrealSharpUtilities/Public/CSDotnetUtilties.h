@@ -45,6 +45,13 @@ namespace UnrealSharp::DotNetUtilities
 	UNREALSHARPUTILITIES_API const TCHAR* GetHostFxrLibraryName();
 	UNREALSHARPUTILITIES_API const TCHAR* GetCoreClrLibraryName();
 
+	/** Directory name used for Mono SDK layout and managed content staging for the
+	 *  compile-time platform: "Win64", "Mac", "Android" or "IOS".
+	 *  Single source of truth shared by the Mono host, the UFS preload hook and the
+	 *  packaged-build path overrides (MonoSDK.Build.cs uses the same names).
+	 *  iOS simulator is not supported (UE 5.8 dropped it; real devices only). */
+	UNREALSHARPUTILITIES_API FString GetMonoManagedPlatformDir();
+
 	UNREALSHARPUTILITIES_API FString GetDotNetDirectory();
 	UNREALSHARPUTILITIES_API FString GetDotNetExecutablePath();
 	UNREALSHARPUTILITIES_API FString GetLatestHostFxrPath(const FString& DotNetRoot);

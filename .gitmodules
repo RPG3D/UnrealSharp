@@ -1,0 +1,3 @@
+[submodule "Source/ThirdParty/MonoSDK"]
+	path = Source/ThirdParty/MonoSDK
+	url = git@github.com:RPG3D/MonoSDK.git

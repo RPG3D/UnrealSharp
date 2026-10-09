@@ -37,6 +37,25 @@ const TCHAR* UnrealSharp::DotNetUtilities::GetCoreClrLibraryName()
 #endif
 }
 
+FString UnrealSharp::DotNetUtilities::GetMonoManagedPlatformDir()
+{
+#if PLATFORM_WINDOWS
+	// FPlatformProperties::PlatformName() returns "Windows" on Win64, but the MonoSDK
+	// directory layout (and MonoSDK.Build.cs staging) uses "Win64".
+	return TEXT("Win64");
+#elif PLATFORM_MAC
+	return TEXT("Mac");
+#elif PLATFORM_ANDROID
+	return TEXT("Android");
+#elif PLATFORM_IOS
+	// Real devices only: UE 5.8 dropped the iOS simulator (Metal requirements);
+	// on-Mac testing uses Apple's "Designed for iPad" instead.
+	return TEXT("IOS");
+#else
+	return FPlatformProperties::PlatformName();
+#endif
+}
+
 FString UnrealSharp::DotNetUtilities::GetDotNetDirectory()
 {
 #if WITH_EDITOR
