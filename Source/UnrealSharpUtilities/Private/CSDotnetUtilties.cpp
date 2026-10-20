@@ -56,6 +56,23 @@ FString UnrealSharp::DotNetUtilities::GetMonoManagedPlatformDir()
 #endif
 }
 
+FString UnrealSharp::DotNetUtilities::GetMonoSdkArchName()
+{
+	// Compile-time CPU family, not a runtime probe: it must match the architecture UBT
+	// passed to MonoSDK.Build.cs (Target.Architecture), otherwise the binary would look
+	// for the SDK of a different ABI -- and libcoreclr would not even have linked.
+#if PLATFORM_CPU_ARM_FAMILY
+	return TEXT("arm64");
+#else
+	return TEXT("x64");
+#endif
+}
+
+FString UnrealSharp::DotNetUtilities::GetMonoSdkPlatformDir()
+{
+	return GetMonoManagedPlatformDir() + TEXT("/") + GetMonoSdkArchName();
+}
+
 FString UnrealSharp::DotNetUtilities::GetDotNetDirectory()
 {
 #if WITH_EDITOR

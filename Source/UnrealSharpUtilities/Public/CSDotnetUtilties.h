@@ -45,12 +45,29 @@ namespace UnrealSharp::DotNetUtilities
 	UNREALSHARPUTILITIES_API const TCHAR* GetHostFxrLibraryName();
 	UNREALSHARPUTILITIES_API const TCHAR* GetCoreClrLibraryName();
 
-	/** Directory name used for Mono SDK layout and managed content staging for the
-	 *  compile-time platform: "Win64", "Mac", "Android" or "IOS".
+	/** Platform name used for the Mono runtime selection and for the managed-content
+	 *  staging directories (Content/Managed/<X>, Saved/Managed/<X>): "Win64", "Mac",
+	 *  "Android" or "IOS". Also handed to UAT as -TargetPlatform, so it must stay
+	 *  parseable by UnrealTargetPlatform -- never append an architecture here; use
+	 *  GetMonoSdkPlatformDir() for on-disk MonoSDK paths.
 	 *  Single source of truth shared by the Mono host, the UFS preload hook and the
 	 *  packaged-build path overrides (MonoSDK.Build.cs uses the same names).
 	 *  iOS simulator is not supported (UE 5.8 dropped it; real devices only). */
 	UNREALSHARPUTILITIES_API FString GetMonoManagedPlatformDir();
+
+	/** Architecture directory name used by the MonoSDK layout: "arm64" or "x64".
+	 *  Matches UnrealBuildTool's Target.Architecture for the same build, which is what
+	 *  MonoSDK.Build.cs resolves <Platform>/<arch>/ with. */
+	UNREALSHARPUTILITIES_API FString GetMonoSdkArchName();
+
+	/** Architecture-qualified MonoSDK directory relative to Source/ThirdParty/MonoSDK:
+	 *  "Mac/x64", "Mac/arm64", "Android/arm64", "IOS/arm64", "Win64/x64".
+	 *  This is the layout the SDK submodule ships and the source build links against.
+	 *  Packaged iOS is the exception: the BCL is staged as UFS in Content/Managed/IOS,
+	 *  so the runtime host consumes it from the PAK instead of this path. Callers that
+	 *  need an on-disk path should still fall back to the pre-arch-split flat
+	 *  "<Platform>" form, which Build.cs also accepts when the payload is missing. */
+	UNREALSHARPUTILITIES_API FString GetMonoSdkPlatformDir();
 
 	UNREALSHARPUTILITIES_API FString GetDotNetDirectory();
 	UNREALSHARPUTILITIES_API FString GetDotNetExecutablePath();

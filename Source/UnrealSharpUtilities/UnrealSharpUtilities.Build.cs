@@ -4,7 +4,12 @@ public class UnrealSharpUtilities : ModuleRules
 {
     public UnrealSharpUtilities(ReadOnlyTargetRules Target) : base(Target)
     {
+        // IWYU stays on everywhere else: see UnrealSharpCore.Build.cs.
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+        if (Target.Platform == UnrealTargetPlatform.IOS)
+        {
+            PrivatePCHHeaderFile = "Public/UnrealSharpSharedPCH.h";
+        }
 
         PublicDependencyModuleNames.AddRange(
             new string[]

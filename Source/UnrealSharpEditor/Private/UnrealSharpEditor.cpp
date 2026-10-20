@@ -500,6 +500,10 @@ void FUnrealSharpEditorModule::PackageProject()
 	// Use the SDK layout name ("Win64"/"Mac"/"IOS"...), not FPlatformProperties::PlatformName()
 	// which returns "Windows" on Win64 and would fail UnrealTargetPlatform::Parse.
 	Arguments.Add(TEXT("TargetPlatform"), UnrealSharp::DotNetUtilities::GetMonoManagedPlatformDir());
+	// The SDK itself is arch-qualified (<Platform>/<arch>). This flow packages for the
+	// editor's own platform/arch, so hand UAT the arch explicitly instead of letting it
+	// guess the host architecture (Mac ships both Mac/x64 and Mac/arm64).
+	Arguments.Add(TEXT("TargetArch"), UnrealSharp::DotNetUtilities::GetMonoSdkArchName());
 #endif
 	
 	FText BuildActionDisplayName = FText::Format(LOCTEXT("PackagingInProgress", "Packaging C# Project '{0}'"), FText::FromString(FApp::GetProjectName()));

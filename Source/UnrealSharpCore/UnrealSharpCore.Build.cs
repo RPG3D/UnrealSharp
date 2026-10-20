@@ -6,7 +6,13 @@ public class UnrealSharpCore : ModuleRules
 {
 	public UnrealSharpCore(ReadOnlyTargetRules Target) : base(Target)
 	{
+		// IWYU stays on everywhere else: only the iOS unity grouping starts with files that
+		// rely on headers the shared PCH happens to include on the other platforms.
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+		if (Target.Platform == UnrealTargetPlatform.IOS)
+		{
+			PrivatePCHHeaderFile = "../UnrealSharpUtilities/Public/UnrealSharpSharedPCH.h";
+		}
 		
 		PublicDefinitions.Add("PLUGIN_PATH=" + PluginDirectory.Replace("\\","/"));
 		PublicDefinitions.Add("TARGET_TYPE=" + (int)Target.Type);

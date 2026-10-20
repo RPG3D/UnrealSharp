@@ -1,12 +1,13 @@
 // PackageProjectMono.cs - Mono packaging command.
 // Reverse flow: publish managed DLLs to Content/Managed/<Platform> BEFORE UAT,
-// so MonoSDK.Build.cs stages them (project DLLs as UFS into the PAK; the BCL is
-// staged separately as NonUFS by MonoSDK.Build.cs from the MonoSDK submodule).
+// so MonoSDK.Build.cs stages them (project DLLs as UFS into the PAK). On iOS the BCL
+// is also staged as UFS in Content/Managed/<Platform>, so the preload hook can serve
+// corlib from the PAK; the other platforms stage the BCL as NonUFS.
 //
 // Differences from PackageProject (CoreCLR):
 //   - No ArchiveDirectory: publishes before UAT instead of into an archived build.
 //   - -p:UseMonoRuntime=true so UNREALSHARP_MONO is defined in all managed DLLs.
-//   - BCL-duplicate DLLs are removed from the publish output (BCL lives outside the PAK).
+//   - BCL-duplicate DLLs are removed from the publish output (the BCL is staged separately).
 //   - Editor-only NuGet leakage (Microsoft.Build*/Microsoft.CodeAnalysis*/Newtonsoft.Json)
 //     is stripped recursively.
 //   - Validates the MonoSDK native library exists for the target platform up front.
@@ -25,6 +26,7 @@ namespace UnrealSharp.Automation.BuildCommands;
 [Help("Packages UnrealSharp managed code for the Mono runtime. Reverse flow: publish BEFORE UAT.")]
 [Help("UEBuildConfig=<Config>", "REQUIRED. Build configuration (Debug, Development, Shipping, Test).")]
 [Help("TargetPlatform=<Platform>", "REQUIRED. Target platform (Android, IOS, Mac, Win64). iOS is real-device only (UE 5.8 dropped the simulator).")]
+[Help("TargetArch=<arch>", "Optional. MonoSDK architecture directory (arm64, x64). Defaults to the platform's only arch; Mac defaults to the host architecture.")]
 [Help("UserParams", "Optional. Additional parameters (-UserParams=\"-p:Property=Value\").")]
 public class PackageProjectMono : BuildCommand
 {
@@ -37,7 +39,18 @@ public class PackageProjectMono : BuildCommand
     public sealed record MonoPackagingOptions(
         UnrealTargetConfiguration BuildConfiguration,
         UnrealTargetPlatform TargetPlatform,
-        string[]? UserParams = null);
+        string[]? UserParams = null,
+        string? TargetArch = null);
+
+    /// <summary>Resolved MonoSDK directory: ArchName is null for the legacy flat layout.</summary>
+    private sealed record SdkLayout(string PlatformName, string? ArchName)
+    {
+        public string RelativeDir => ArchName == null ? PlatformName : $"{PlatformName}/{ArchName}";
+
+        public string ResolvePath(string sdkRoot) => ArchName == null
+            ? Path.Combine(sdkRoot, PlatformName)
+            : Path.Combine(sdkRoot, PlatformName, ArchName);
+    }
 
     public override void ExecuteBuild()
     {
@@ -47,7 +60,7 @@ public class PackageProjectMono : BuildCommand
 
     private void StartPackaging(MonoPackagingOptions options)
     {
-        ValidateOptions(options);
+        SdkLayout Sdk = ValidateOptions(options);
         LogOptions(options);
 
         DotNetSdkUtilities.CopyGlobalJson(this);
@@ -63,7 +76,7 @@ public class PackageProjectMono : BuildCommand
         BuildUserBindings(PublishFolder, options, Arguments);
         BuildUserSolution(PublishFolder, Arguments, options.BuildConfiguration, options.UserParams);
 
-        DeduplicateBclDlls(options.TargetPlatform, PublishFolder);
+        DeduplicateBclDlls(Sdk, PublishFolder);
         StripEditorOnlyDlls(PublishFolder);
         EmitInstalledFlagFile(PublishFolder);
 
@@ -85,20 +98,23 @@ public class PackageProjectMono : BuildCommand
         string PlatformString = ParseRequiredStringParam("TargetPlatform");
         UnrealTargetPlatform TargetPlatform = UnrealTargetPlatform.Parse(PlatformString);
         string[] UserParams = ParseParamValues("UserParams");
-        return new MonoPackagingOptions(TargetConfiguration, TargetPlatform, UserParams);
+        string? TargetArch = ParseParamValue("TargetArch")?.ToLowerInvariant();
+        return new MonoPackagingOptions(TargetConfiguration, TargetPlatform, UserParams, TargetArch);
     }
 
     private static void LogOptions(MonoPackagingOptions options)
     {
         LoggerUtilities.LogUnrealSharpInfo("Mono packaging project with parameters:");
         LoggerUtilities.LogUnrealSharpInfo($"Target Platform: {options.TargetPlatform}");
+        if (!string.IsNullOrEmpty(options.TargetArch))
+            LoggerUtilities.LogUnrealSharpInfo($"Target Architecture: {options.TargetArch}");
         LoggerUtilities.LogUnrealSharpInfo($"UE Build Configuration: {options.BuildConfiguration}");
         LoggerUtilities.LogUnrealSharpInfo($"Output: Content/Managed/{GetManagedSubDir(options.TargetPlatform)}");
         if (options.UserParams is { Length: > 0 })
             LoggerUtilities.LogUnrealSharpInfo($"User Params: {string.Join(' ', options.UserParams)}");
     }
 
-    private void ValidateOptions(MonoPackagingOptions options)
+    private SdkLayout ValidateOptions(MonoPackagingOptions options)
     {
         if (options.TargetPlatform != UnrealTargetPlatform.Mac &&
             options.TargetPlatform != UnrealTargetPlatform.Android &&
@@ -106,20 +122,104 @@ public class PackageProjectMono : BuildCommand
             options.TargetPlatform != UnrealTargetPlatform.Win64)
             throw new NotSupportedException($"Mono packaging not supported for '{options.TargetPlatform}'. Supported: Mac, Android, IOS, Win64.");
 
-        // REVIEW-fix: fail fast with a clear message when the MonoSDK native runtime is missing,
-        // instead of packaging "successfully" and Fatal'ing at runtime.
-        string PlatformDir = GetManagedSubDir(options.TargetPlatform);
-        string SdkDir = Path.Combine(this.GetUnrealSharpRootFolder(), "Source", "ThirdParty", "MonoSDK", PlatformDir);
+        if (!string.IsNullOrEmpty(options.TargetArch) &&
+            options.TargetArch != "x64" &&
+            options.TargetArch != "arm64")
+            throw new NotSupportedException($"Unsupported TargetArch '{options.TargetArch}'. Expected x64 or arm64.");
 
-        if (!Directory.Exists(SdkDir))
-            throw new DirectoryNotFoundException(
-                $"MonoSDK directory not found for platform '{PlatformDir}': {SdkDir}. " +
-                "Populate Source/ThirdParty/MonoSDK (see README_MONO.md) before packaging.");
+        // Fail fast with a clear message when the MonoSDK runtime for this platform/arch is
+        // missing, instead of packaging "successfully" and Fatal'ing at runtime.
+        // Android requires the arch layout: MonoSDK_APL.xml copies the runtime .so files from
+        // Android/arm64/ verbatim, so a legacy flat Android/ SDK would build fine and then
+        // ship an APK with no native Mono runtime at all.
+        bool bRequireArchLayout = options.TargetPlatform == UnrealTargetPlatform.Android;
+        SdkLayout Sdk = ResolveSdkLayout(options.TargetPlatform, options.TargetArch, bRequireArchLayout);
 
-        string RuntimeDir = Path.Combine(SdkDir, "runtime");
+        LoggerUtilities.LogUnrealSharpInfo($"[Mono] MonoSDK layout: {Sdk.RelativeDir}");
+
+        string RuntimeDir = Path.Combine(Sdk.ResolvePath(GetMonoSdkRootFolder()), "runtime");
         if (!Directory.Exists(RuntimeDir))
             throw new DirectoryNotFoundException(
                 $"MonoSDK BCL runtime directory not found: {RuntimeDir}. The SDK download/build is incomplete.");
+
+        return Sdk;
+    }
+
+    private string GetMonoSdkRootFolder()
+        => Path.Combine(this.GetUnrealSharpRootFolder(), "Source", "ThirdParty", "MonoSDK");
+
+    /// <summary>Architecture directory name for the target platform. Single-arch platforms are
+    /// fixed by the target; macOS ships both Mac/x64 and Mac/arm64, so without -TargetArch the
+    /// host architecture is assumed (the editor-triggered flow packages for itself).</summary>
+    private static string? GetSdkArchName(UnrealTargetPlatform platform, string? requestedArch)
+    {
+        if (!string.IsNullOrEmpty(requestedArch))
+            return requestedArch;
+
+        if (platform == UnrealTargetPlatform.Android || platform == UnrealTargetPlatform.IOS)
+            return "arm64";
+
+        if (platform == UnrealTargetPlatform.Win64 || platform == UnrealTargetPlatform.Linux)
+            return "x64";
+
+        if (platform == UnrealTargetPlatform.Mac)
+        {
+            try
+            {
+                return UnrealArch.Host.Value.bIsX64 ? "x64" : "arm64";
+            }
+            catch (Exception)
+            {
+                // Host arch unavailable in this UAT context; the directory scan decides.
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Resolves the MonoSDK directory the same way MonoSDK.Build.cs does:
+    /// &lt;Platform&gt;/&lt;arch&gt; first, then the legacy flat &lt;Platform&gt; (unless the
+    /// platform requires the arch layout). A sibling arch is only used when the host
+    /// architecture is unknown; never as a substitute for a known target arch.
+    /// Keeping the two sides aligned means UAT never validates a different SDK than UBT links.</summary>
+    private SdkLayout ResolveSdkLayout(UnrealTargetPlatform platform, string? requestedArch, bool bRequireArchLayout)
+    {
+        string PlatformName = GetManagedSubDir(platform);
+        string SdkRoot = GetMonoSdkRootFolder();
+        string PlatformRoot = Path.Combine(SdkRoot, PlatformName);
+        string? Arch = GetSdkArchName(platform, requestedArch);
+
+        if (Arch != null && Directory.Exists(Path.Combine(PlatformRoot, Arch, "runtime")))
+            return new SdkLayout(PlatformName, Arch);
+
+        if (Arch == null && Directory.Exists(PlatformRoot))
+        {
+            foreach (string Candidate in Directory.EnumerateDirectories(PlatformRoot).OrderBy(D => D, StringComparer.Ordinal))
+            {
+                if (!Directory.Exists(Path.Combine(Candidate, "runtime")))
+                    continue;
+
+                string CandidateArch = Path.GetFileName(Candidate);
+                LoggerUtilities.LogUnrealSharpWarning(
+                    $"[Mono] MonoSDK host architecture unknown; using '{PlatformName}/{CandidateArch}' instead.");
+                return new SdkLayout(PlatformName, CandidateArch);
+            }
+        }
+
+        if (!bRequireArchLayout && Directory.Exists(Path.Combine(PlatformRoot, "runtime")))
+        {
+            LoggerUtilities.LogUnrealSharpWarning(
+                $"[Mono] Using the legacy flat MonoSDK layout '{PlatformName}/runtime'; " +
+                "download the arch-aware SDK (<Platform>/<arch>/) to match MonoSDK.Build.cs resolution.");
+            return new SdkLayout(PlatformName, null);
+        }
+
+        throw new DirectoryNotFoundException(
+            $"MonoSDK for '{PlatformName}' (arch '{Arch ?? "unknown"}') not found under {SdkRoot}. " +
+            $"Expected '{Path.Combine(PlatformRoot, Arch ?? "<arch>", "runtime")}'" +
+            (bRequireArchLayout ? " (the arch layout is required on this platform)." : " or the legacy flat layout.") +
+            " Populate Source/ThirdParty/MonoSDK from the MonoSDK release zip (see README_MONO.md).");
     }
 
     private static void CleanBuildArtifacts(string folder)
@@ -230,13 +330,13 @@ public class PackageProjectMono : BuildCommand
     /// <summary>Remove DLLs from the publish output that also exist in the MonoSDK BCL.
     /// The BCL is staged as NonUFS by MonoSDK.Build.cs; duplicates would waste PAK space.
     /// REVIEW-fix: enumerates recursively (subfolders too).</summary>
-    private void DeduplicateBclDlls(UnrealTargetPlatform targetPlatform, string publishFolder)
+    private void DeduplicateBclDlls(SdkLayout sdk, string publishFolder)
     {
-        string PluginDir = this.GetUnrealSharpRootFolder();
-        string BclSubDir = GetManagedSubDir(targetPlatform);
-        string BclDir = Path.Combine(PluginDir, "Source", "ThirdParty", "MonoSDK", BclSubDir, "runtime");
+        string BclDir = Path.Combine(sdk.ResolvePath(GetMonoSdkRootFolder()), "runtime");
         if (!Directory.Exists(BclDir))
         {
+            // ValidateOptions already accepted this layout, so a missing BCL here means the
+            // SDK was removed mid-build. Warn loudly: silent dedup skips ship BCL DLLs in the PAK.
             LoggerUtilities.LogUnrealSharpWarning($"[Mono] BCL directory not found, skipping dedup: {BclDir}");
             return;
         }

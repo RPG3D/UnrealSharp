@@ -223,8 +223,12 @@ load_assembly_and_get_function_pointer_fn FCSDotNetRuntimeHost::ConfigureRuntime
 
 	hostfxr_initialize_parameters InitializeParameters;
 	InitializeParameters.size = sizeof(hostfxr_initialize_parameters);
-	InitializeParameters.host_path = HostPathConv.Get();
-	InitializeParameters.dotnet_root = DotNetRootConv.Get();
+	// hostfxr's char_t is plain char while FHostChar is UTF8CHAR, which is char8_t under
+	// C++20 on Apple clang. The byte representation is identical, so reinterpret (same
+	// pattern as the LoadAssemblyAndGetFunctionPointer call above); without the cast the
+	// editor build fails with incompatible pointer types.
+	InitializeParameters.host_path = reinterpret_cast<const char_t*>(HostPathConv.Get());
+	InitializeParameters.dotnet_root = reinterpret_cast<const char_t*>(DotNetRootConv.Get());
 
 	hostfxr_handle HostFXR_Handle = nullptr;
 	int32 ErrorCode;
@@ -232,7 +236,7 @@ load_assembly_and_get_function_pointer_fn FCSDotNetRuntimeHost::ConfigureRuntime
 	if (Layout.bSelfContained)
 	{
 		DotNetUtilities::FHostStringConversion AppAssemblyConv = StringCast<DotNetUtilities::FHostChar>(*Layout.AppAssemblyPath);
-		const char_t* Args[] = { (AppAssemblyConv.Get()) };
+		const char_t* Args[] = { reinterpret_cast<const char_t*>(AppAssemblyConv.Get()) };
 		ErrorCode = Hostfxr_InitForCommandLine(UE_ARRAY_COUNT(Args), Args, &InitializeParameters, &HostFXR_Handle);
 	}
 	else

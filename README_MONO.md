@@ -45,7 +45,7 @@ Pipeline:
 4. `RunUAT BuildCookRun -TargetPlatform=Android` — cook + pak + stage + archive
 
 Key mechanics:
-- **BCL** (runtime DLLs) staged as **NonUFS** (outside PAK) via `MonoSDK.Build.cs`
+- **BCL** (runtime DLLs) staged via `MonoSDK.Build.cs`: **UFS** in `Content/Managed/<Platform>/` on iOS (the preload hook serves corlib and the rest of the BCL from the PAK), **NonUFS** on the other platforms
 - **Project DLLs** staged as **UFS** (inside PAK, `Content/Managed/<Platform>/`) — hot-updatable alongside game assets
 - **Load order** manifests tell UnrealSharp which assemblies to load
 - Assembly loading goes through a **UFS/pak-aware preload hook** (`mono_install_assembly_preload_hook` + `FFileHelper::LoadFileToArray`) — POSIX `fopen` cannot read PAK paths
@@ -97,9 +97,9 @@ Mono's built-in soft debugger agent — attach from **Visual Studio** or **Rider
 | **GitHub** | [RPG3D/MonoSDK](https://github.com/RPG3D/MonoSDK) |
 | **Clone location** | `Source/ThirdParty/MonoSDK/` (git submodule) |
 
-The repository holds **build scripts + UBT integration only — no binaries**. Populate platform directories (`Win64/`, `Mac/`, `Android/`, `IOS/`, `IOSSimulator/`) by either:
-- **Option A**: download the prebuilt SDK from [GitHub Releases](https://github.com/RPG3D/MonoSDK/releases) and extract into `Source/ThirdParty/MonoSDK/`
-- **Option B**: build from dotnet/runtime source — `./BuildMonoSDK.bat` / `./BuildMonoSDK.sh`
+The repository holds **build scripts + UBT integration only — no binaries**. SDK payload is arch-qualified — `Win64/x64`, `Mac/x64`, `Mac/arm64`, `Android/arm64`, `IOS/arm64`, `IOSSimulator/{arm64,x64}`, `Linux/x64` — with the shared Mono headers at the root `include/`. Populate them by either:
+- **Option A**: download the prebuilt SDK from [GitHub Releases](https://github.com/RPG3D/MonoSDK/releases) and extract into `Source/ThirdParty/MonoSDK/` (the zip already ships the `<Platform>/<arch>/` tree and `include/`)
+- **Option B**: build from dotnet/runtime source — `./BuildMonoSDK.bat` / `./BuildMonoSDK.sh <dotnet-runtime-dir> <platform> <build-type> [arch]`
 
 ## Integration philosophy
 
@@ -109,7 +109,8 @@ Mono-specific logic lives in **new files** (`CSMonoRuntime.h/.cpp`, `CSDotNetRun
 
 - Re-based on the rewritten class-based `FCSDotNetRuntimeHost` (upstream no longer has `GetRuntimeHostPath`); the `CSDotnetUtilties` seam from the old port is **gone entirely**.
 - Entry-point invocation adapted to the new signature (UTF-8 working directory + `FCSInitializationResult` out-struct); the temp-file exception roundtrip is no longer needed, and `mono_string_to_utf8` results are `mono_free`'d (old leak).
-- Platform-dir mapping (Win64/Mac/Android/IOS/IOSSimulator) deduplicated into `DotNetUtilities::GetMonoManagedPlatformDir()` (was repeated in 3 C++ files).
+- Adapted to MonoSDK's arch-aware layout: the BCL runtime dir resolves to `<Platform>/<arch>/runtime/` (e.g. `Mac/x64/runtime`) with a legacy flat `<Platform>/runtime` fallback, in the same order `MonoSDK.Build.cs` uses; `PackageProjectMono` validates and dedups against the same directory (Android requires the arch layout, because `MonoSDK_APL.xml` hardcodes `Android/arm64/`). Packaged iOS is the exception: the BCL is staged as UFS in `Content/Managed/IOS`, and the assembly preload hook loads corlib and the rest of the BCL from the PAK.
+- Platform-dir mapping deduplicated into `DotNetUtilities::GetMonoManagedPlatformDir()` (platform name — also the UAT `-TargetPlatform` value) plus `GetMonoSdkArchName()` / `GetMonoSdkPlatformDir()` (arch-qualified SDK path, e.g. `Mac/x64`).
 - `PackageProjectMono` validates the MonoSDK native/BCL directories up front (old: silent success on missing SDK); BCL dedup and editor-DLL strip are recursive and include `Newtonsoft.Json.dll`.
 - `PluginLoader.Plugins` is a `ConcurrentDictionary` (thread-safe load/unload).
 - Startup retry recursion capped at 5 attempts; UAT invocation retries on the single-instance mutex conflict.

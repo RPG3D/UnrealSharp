@@ -384,6 +384,8 @@ MonoDomain* InitializeMonoRuntime(const FString& RuntimeDir, const FString& Extr
 	}
 #endif
 
+	// Packaged iOS passes the UFS content path here; the preload hook resolves it from the
+	// PAK, so no native path conversion is needed.
 	const FString RuntimeDirNormalized = FPaths::ConvertRelativePathToFull(RuntimeDir);
 
 	// Step 1: Set assembly search paths

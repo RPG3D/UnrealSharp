@@ -25,27 +25,59 @@ bool FCSDotNetRuntimeHost::InitializeMonoHost()
 	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] InitializeMonoHost: starting Mono runtime initialization..."));
 
 	// --- 1. Determine the BCL runtime directory ---
-	// The BCL lives in the MonoSDK submodule at Source/ThirdParty/MonoSDK/<Platform>/runtime/,
-	// both in the editor and in packaged builds (MonoSDK.Build.cs stages it as NonUFS,
-	// which preserves this plugin-relative layout next to the staged executable).
-	const FString PluginDir = FPaths::ConvertRelativePathToFull(UnrealSharp::Paths::GetPluginDirectory());
-	const FString RuntimeDir = FPaths::Combine(
-		PluginDir, TEXT("Source"), TEXT("ThirdParty"), TEXT("MonoSDK"),
-		UnrealSharp::DotNetUtilities::GetMonoManagedPlatformDir(), TEXT("runtime"));
+	// Packaged iOS stages the BCL as UFS in Content/Managed/<Platform>; the UnrealSharp
+	// preload hook loads corlib (and the rest of the BCL) from the PAK. There is no
+	// physical SDK directory there, and a native path would be rewritten/lowercased by
+	// the iOS platform file anyway.
+	const FString UserWorkingDirectory = UnrealSharp::Paths::GetUserAssemblyDirectory();
 
-	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] BCL runtime dir: %s"), *RuntimeDir);
+#if PLATFORM_IOS && !WITH_EDITOR
+	const FString RuntimeDir = UserWorkingDirectory;
+	const bool bUfsBcl = FPaths::FileExists(
+		FPaths::Combine(RuntimeDir, TEXT("System.Private.CoreLib.dll")));
+
+	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] BCL runtime dir: %s (UFS layout)"), *RuntimeDir);
+
+	if (!bUfsBcl)
+	{
+		UE_LOG(LogUnrealSharp, Fatal,
+			TEXT("[Mono] BCL not found in the staged UFS content: %s. ")
+			TEXT("Check that MonoSDK.Build.cs staged the BCL into Content/Managed/IOS."),
+			*FPaths::Combine(RuntimeDir, TEXT("System.Private.CoreLib.dll")));
+		return false;
+	}
+#else
+	// Editor / non-iOS packaged builds: the BCL lives next to the plugin in the SDK
+	// submodule, staged as NonUFS by MonoSDK.Build.cs. Mirror its <Platform>/<arch>
+	// resolution order and fall back to the legacy flat layout.
+	const FString PluginDir = FPaths::ConvertRelativePathToFull(UnrealSharp::Paths::GetPluginDirectory());
+	const FString SdkRootDir = FPaths::Combine(
+		PluginDir, TEXT("Source"), TEXT("ThirdParty"), TEXT("MonoSDK"));
+	const FString ArchRuntimeDir = FPaths::Combine(
+		SdkRootDir, UnrealSharp::DotNetUtilities::GetMonoSdkPlatformDir(), TEXT("runtime"));
+	const FString FlatRuntimeDir = FPaths::Combine(
+		SdkRootDir, UnrealSharp::DotNetUtilities::GetMonoManagedPlatformDir(), TEXT("runtime"));
+
+	const bool bArchLayout = FPaths::DirectoryExists(ArchRuntimeDir);
+	const FString RuntimeDir = bArchLayout ? ArchRuntimeDir : FlatRuntimeDir;
+
+	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] BCL runtime dir: %s (%s layout)"),
+		*RuntimeDir, bArchLayout ? TEXT("arch") : TEXT("legacy flat"));
 
 	if (!FPaths::DirectoryExists(RuntimeDir))
 	{
-		UE_LOG(LogUnrealSharp, Fatal, TEXT("[Mono] BCL runtime directory not found: %s"), *RuntimeDir);
+		UE_LOG(LogUnrealSharp, Fatal,
+			TEXT("[Mono] BCL runtime directory not found. Tried '%s' (arch layout) and '%s' (legacy flat). ")
+			TEXT("Populate Source/ThirdParty/MonoSDK from the MonoSDK release zip."),
+			*ArchRuntimeDir, *FlatRuntimeDir);
 		return false;
 	}
+#endif
 
 	// --- 2. Determine assembly paths ---
 	// All paths use relative format -- UE I/O APIs (FFileHelper, FPaths) handle both
 	// editor filesystem and packaged PAK/UFS transparently.
 	const FString UnrealSharpLibraryAssembly = UnrealSharp::Paths::GetUnrealSharpPluginsPath();
-	const FString UserWorkingDirectory = UnrealSharp::Paths::GetUserAssemblyDirectory();
 
 #if WITH_EDITOR
 	if (!FPaths::FileExists(UnrealSharpLibraryAssembly))
