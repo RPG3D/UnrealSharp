@@ -9,10 +9,13 @@
 #include "CSPathsUtilities.h"
 #include "CSDotnetUtilties.h"
 #include "CSUnrealSharpSettings.h"
+#include "Dom/JsonObject.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "HAL/PlatformFileManager.h"
 #include "GenericPlatform/GenericPlatformFile.h"
 #include <mono/metadata/mono-debug.h>
@@ -43,6 +46,13 @@ static TArray<FString> GMonoAssemblySearchPaths;
 
 // True when InitMonoDebugger has been called and debugger is active.
 static bool GMonoDebuggerActive = false;
+
+// Debug-only: assembly file name -> absolute build-machine path, loaded from
+// Content/Managed/<Platform>/mono_debug_paths.json (written by PackageProjectMono).
+// Packaged builds load assemblies from the PAK under UE virtual paths, which an IDE
+// cannot resolve to a PDB; reporting the build-machine path lets Rider/VS find the
+// PDB next to the DLL. Empty unless the debugger is active.
+static TMap<FString, FString> GMonoDebugHostPaths;
 
 // ============================================================================
 //  iOS BCL native library fallback loader
@@ -133,11 +143,16 @@ static void* OnMonoDlFallbackClose(void* Handle, void* /*UserData*/)
 //  UFS assembly loader (pak-aware)
 // ============================================================================
 
-static MonoAssembly* LoadAssemblyFromBytes(const FString& FilePath)
+static MonoAssembly* LoadAssemblyFromBytes(const FString& FilePath, const FString& DebugName = FString())
 {
 	TArray<uint8> FileBytes;
 	if (!FFileHelper::LoadFileToArray(FileBytes, *FilePath, FILEREAD_Silent))
 		return nullptr;
+
+	// The image/assembly name is what the debugger reports to the IDE and what it uses to
+	// locate the PDB. Use the build-machine path when the debugger is attached; keep the
+	// UE virtual path otherwise.
+	const FString& Name = DebugName.IsEmpty() ? FilePath : DebugName;
 
 	MonoImageOpenStatus Status = MONO_IMAGE_OK;
 	MonoImage* Image = mono_image_open_from_data_with_name(
@@ -146,7 +161,7 @@ static MonoAssembly* LoadAssemblyFromBytes(const FString& FilePath)
 		true,   // need_copy
 		&Status,
 		false,  // refonly
-		TCHAR_TO_UTF8(*FilePath));
+		TCHAR_TO_UTF8(*Name));
 
 	if (!Image || Status != MONO_IMAGE_OK)
 	{
@@ -156,7 +171,7 @@ static MonoAssembly* LoadAssemblyFromBytes(const FString& FilePath)
 		return nullptr;
 	}
 
-	MonoAssembly* Assembly = mono_assembly_load_from(Image, TCHAR_TO_UTF8(*FilePath), &Status);
+	MonoAssembly* Assembly = mono_assembly_load_from(Image, TCHAR_TO_UTF8(*Name), &Status);
 	if (!Assembly || Status != MONO_IMAGE_OK)
 	{
 		UE_LOG(LogUnrealSharp, Warning,
@@ -186,10 +201,23 @@ static MonoAssembly* LoadAssemblyFromUFS(const char* AssemblyNameUtf8)
 	for (const FString& SearchDir : GMonoAssemblySearchPaths)
 	{
 		const FString FilePath = FPaths::Combine(SearchDir, DllFilename);
-		MonoAssembly* Assembly = LoadAssemblyFromBytes(FilePath);
+
+		// Debug builds: report the build-machine path so the IDE can find the PDB.
+		FString DebugName;
+		if (!GMonoDebugHostPaths.IsEmpty())
+		{
+			if (const FString* HostPath = GMonoDebugHostPaths.Find(DllFilename))
+			{
+				DebugName = *HostPath;
+				UE_LOG(LogUnrealSharp, Verbose, TEXT("[Mono] Debug symbol path: %s"), *DebugName);
+			}
+		}
+
+		MonoAssembly* Assembly = LoadAssemblyFromBytes(FilePath, DebugName);
 		if (Assembly)
 		{
-			UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] UFS-loaded assembly: %s"), *FilePath);
+			UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] UFS-loaded assembly: %s (%s)"), *FilePath,
+				DebugName.IsEmpty() ? TEXT("ue path") : *DebugName);
 			return Assembly;
 		}
 		// Distinguish "file not found" (path resolution / UFS miss) from "found but bad image"
@@ -423,6 +451,32 @@ MonoDomain* InitializeMonoRuntime(const FString& RuntimeDir, const FString& Extr
 
 	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] mono_set_assemblies_path: %s"), *AssembliesPath);
 	mono_set_assemblies_path(TCHAR_TO_UTF8(*AssembliesPath));
+
+	// Debug builds: load the build-machine path map so the debugger reports paths the
+	// IDE can resolve to PDB files. Written by PackageProjectMono next to the assemblies.
+	GMonoDebugHostPaths.Empty();
+	if (GMonoDebuggerActive)
+	{
+		const FString ManifestPath = FPaths::Combine(RuntimeDir, TEXT("mono_debug_paths.json"));
+		FString ManifestJson;
+		if (FFileHelper::LoadFileToString(ManifestJson, *ManifestPath))
+		{
+			TSharedPtr<FJsonObject> Root;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ManifestJson);
+			if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
+			{
+				for (const TPair<FString, TSharedPtr<FJsonValue>>& Entry : Root->Values)
+				{
+					if (Entry.Value.IsValid() && Entry.Value->Type == EJson::String)
+					{
+						GMonoDebugHostPaths.Add(Entry.Key, Entry.Value->AsString());
+					}
+				}
+			}
+		}
+		UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] Debug symbol map: %d entries (%s)"),
+			GMonoDebugHostPaths.Num(), *ManifestPath);
+	}
 
 	// Step 1b: Populate search paths for preload hook
 	GMonoAssemblySearchPaths.Empty();
