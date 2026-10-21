@@ -25,13 +25,13 @@ bool FCSDotNetRuntimeHost::InitializeMonoHost()
 	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] InitializeMonoHost: starting Mono runtime initialization..."));
 
 	// --- 1. Determine the BCL runtime directory ---
-	// Packaged iOS stages the BCL as UFS in Content/Managed/<Platform>; the UnrealSharp
-	// preload hook loads corlib (and the rest of the BCL) from the PAK. There is no
-	// physical SDK directory there, and a native path would be rewritten/lowercased by
-	// the iOS platform file anyway.
+	// Packaged Android and iOS map the BCL as UFS into Content/Managed/<Platform>; the
+	// UnrealSharp preload hook loads corlib (and the rest of the BCL) from the PAK.
+	// There is no physical SDK directory in the package, and on iOS a native path would
+	// be rewritten/lowercased by the platform file anyway.
 	const FString UserWorkingDirectory = UnrealSharp::Paths::GetUserAssemblyDirectory();
 
-#if PLATFORM_IOS && !WITH_EDITOR
+#if (PLATFORM_IOS || PLATFORM_ANDROID) && !WITH_EDITOR
 	const FString RuntimeDir = UserWorkingDirectory;
 	const bool bUfsBcl = FPaths::FileExists(
 		FPaths::Combine(RuntimeDir, TEXT("System.Private.CoreLib.dll")));
@@ -42,14 +42,14 @@ bool FCSDotNetRuntimeHost::InitializeMonoHost()
 	{
 		UE_LOG(LogUnrealSharp, Fatal,
 			TEXT("[Mono] BCL not found in the staged UFS content: %s. ")
-			TEXT("Check that MonoSDK.Build.cs staged the BCL into Content/Managed/IOS."),
-			*FPaths::Combine(RuntimeDir, TEXT("System.Private.CoreLib.dll")));
+			TEXT("Check that MonoSDK.Build.cs mapped the BCL into Content/Managed/%s."),
+			*FPaths::Combine(RuntimeDir, TEXT("System.Private.CoreLib.dll")),
+			*UnrealSharp::DotNetUtilities::GetMonoManagedPlatformDir());
 		return false;
 	}
 #else
-	// Editor / non-iOS packaged builds: the BCL lives next to the plugin in the SDK
-	// submodule, staged as NonUFS by MonoSDK.Build.cs. Mirror its <Platform>/<arch>
-	// resolution order and fall back to the legacy flat layout.
+	// Editor builds: the BCL lives next to the plugin in the SDK submodule. Mirror its
+	// <Platform>/<arch> resolution order and fall back to the legacy flat layout.
 	const FString PluginDir = FPaths::ConvertRelativePathToFull(UnrealSharp::Paths::GetPluginDirectory());
 	const FString SdkRootDir = FPaths::Combine(
 		PluginDir, TEXT("Source"), TEXT("ThirdParty"), TEXT("MonoSDK"));
@@ -99,11 +99,10 @@ bool FCSDotNetRuntimeHost::InitializeMonoHost()
 #endif
 
 	// --- 3. Initialize Mono Debugger (before runtime init) ---
+	// InitMonoDebugger applies the project settings and the -MonoDebug command-line
+	// overrides; bMonoPerformanceMode is handled inside it so the CLI can still opt in.
 	const UCSUnrealSharpSettings* Settings = GetDefault<UCSUnrealSharpSettings>();
-	if (Settings && !Settings->bMonoPerformanceMode)
-	{
-		InitMonoDebugger(Settings);
-	}
+	InitMonoDebugger(Settings);
 
 	// --- 4. Initialize Mono runtime ---
 	MonoRootDomain = InitializeMonoRuntime(RuntimeDir, ExtraSearchPaths);

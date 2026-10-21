@@ -9,7 +9,9 @@
 #include "CSPathsUtilities.h"
 #include "CSDotnetUtilties.h"
 #include "CSUnrealSharpSettings.h"
+#include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "HAL/PlatformFileManager.h"
 #include "GenericPlatform/GenericPlatformFile.h"
@@ -292,19 +294,39 @@ void InitMonoDebugger(const UCSUnrealSharpSettings* Settings)
 		return;
 	}
 
+	// Command-line opt-in, mirroring the CoreCLR line's -clrdebug: packaged builds can
+	// put "-MonoDebug" in UECommandLine.txt without rebuilding the ini defaults.
+	//   -MonoDebug            enable the soft debugger agent
+	//   -MonoDebugPort=NNNNN  override MonoDebuggerPort
+	//   -MonoDebugWait        suspend startup until a debugger attaches
+	const bool bCliDebug = FParse::Param(FCommandLine::Get(), TEXT("MonoDebug"));
+
+	if (Settings->bMonoPerformanceMode && !bCliDebug)
+	{
+		return;
+	}
+
 #if !WITH_EDITOR
-	if (!Settings->bEnableMonoDebugger)
+	if (!Settings->bEnableMonoDebugger && !bCliDebug)
 	{
 		return;
 	}
 #endif
 
-	const int32 Port = Settings->MonoDebuggerPort;
+	int32 Port = Settings->MonoDebuggerPort;
+	FString PortOverride;
+	if (bCliDebug && FParse::Value(FCommandLine::Get(), TEXT("MonoDebugPort="), PortOverride))
+	{
+		Port = FCString::Atoi(*PortOverride);
+	}
 	if (Port <= 0 || Port > 65535)
 	{
 		UE_LOG(LogUnrealSharp, Warning, TEXT("[Mono] InitMonoDebugger: invalid port %d, debugger disabled"), Port);
 		return;
 	}
+
+	UE_LOG(LogUnrealSharp, Log, TEXT("[Mono] Debugger enabled by %s"),
+		bCliDebug ? TEXT("-MonoDebug") : TEXT("project settings"));
 
 	FString LogArgs;
 	if (Settings->bUseMonoLogFile)
@@ -315,7 +337,8 @@ void InitMonoDebugger(const UCSUnrealSharpSettings* Settings)
 			Settings->MonoLogLevel, *LogFile);
 	}
 
-	const bool bWait = Settings->bMonoWaitDebugger;
+	const bool bWait = Settings->bMonoWaitDebugger ||
+		FParse::Param(FCommandLine::Get(), TEXT("MonoDebugWait"));
 	// embedding=n + suspend=y: external debugger, runtime waits for attach
 	// embedding=y + suspend=n: embedded debugger, runtime starts immediately
 	const FString Args = FString::Printf(
@@ -329,7 +352,7 @@ void InitMonoDebugger(const UCSUnrealSharpSettings* Settings)
 
 	UE_LOG(LogUnrealSharp, Log,
 		TEXT("[Mono] InitMonoDebugger: port=%d, wait=%s"),
-		Port, Settings->bMonoWaitDebugger ? TEXT("yes") : TEXT("no"));
+		Port, bWait ? TEXT("yes") : TEXT("no"));
 
 	// Use JIT (not INTERP_ONLY) -- INTERP_ONLY breaks MethodHandle.GetFunctionPointer()
 	// used by UnmanagedCallbacks.GetManagedMethod to resolve Blueprint method handles.

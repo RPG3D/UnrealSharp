@@ -40,13 +40,14 @@ BuildAndroid.bat Development
 
 Pipeline:
 1. `Build.bat SharpDemo Win64 <Config>` — build Game target (UHT/Game glue; UHT only runs on the host platform)
-2. `RunUAT PackageProjectMono -TargetPlatform=Android` — publish managed DLLs to `Content/Managed/Android/`
+2. `RunUAT PackageProjectMono -TargetPlatform=Android` — publish managed DLLs to `Binaries/Managed/Android/`
 3. `Build.bat SharpDemoEditor Win64 Development` — fill flat `Binaries/Managed/` (cook needs it)
 4. `RunUAT BuildCookRun -TargetPlatform=Android` — cook + pak + stage + archive
 
 Key mechanics:
-- **BCL** (runtime DLLs) staged via `MonoSDK.Build.cs`: **UFS** in `Content/Managed/<Platform>/` on iOS (the preload hook serves corlib and the rest of the BCL from the PAK), **NonUFS** on the other platforms
-- **Project DLLs** staged as **UFS** (inside PAK, `Content/Managed/<Platform>/`) — hot-updatable alongside game assets
+- **Publish location**: `PackageProjectMono` writes to `Binaries/Managed/<Platform>/` (gitignored). `MonoSDK.Build.cs` maps those files to the UFS destination `Content/Managed/<Platform>/`; UBT materializes that path as a build product (it is never an input and is gitignored).
+- **BCL** (runtime DLLs) is mapped from the SDK's `<Platform>/<arch>/runtime/` to the same UFS path on **Android and iOS** (the preload hook serves corlib and the rest of the BCL from the PAK). Editor builds keep reading the BCL from the SDK directory.
+- **Project DLLs** staged as **UFS** (inside PAK, `Content/Managed/<Platform>/`) — hot-updatable alongside game assets.
 - **Load order** manifests tell UnrealSharp which assemblies to load
 - Assembly loading goes through a **UFS/pak-aware preload hook** (`mono_install_assembly_preload_hook` + `FFileHelper::LoadFileToArray`) — POSIX `fopen` cannot read PAK paths
 
@@ -84,7 +85,17 @@ Mono's built-in soft debugger agent — attach from **Visual Studio** or **Rider
 | `bEnableMonoDebugger` | `false` | Enable debugger agent in packaged builds (editor always enables when not in perf mode) |
 | `MonoDebuggerPort` | `56000` | Debugger agent listen port |
 | `bMonoWaitDebugger` | `false` | Suspend at startup until a debugger attaches |
-| `bMonoPerformanceMode` | `false` | Disable the debugger entirely (forced in Shipping) |
+| `bMonoPerformanceMode` | `false` | Disable the debugger entirely unless `-MonoDebug` is passed (forced in Shipping) |
+
+Command-line overrides (highest precedence; put them in `UECommandLine.txt` for packaged builds):
+
+| Flag | Effect |
+|------|--------|
+| `-MonoDebug` | Enable the soft debugger agent even when `bEnableMonoDebugger=false` or `bMonoPerformanceMode=true` |
+| `-MonoDebugPort=NNNNN` | Override `MonoDebuggerPort` (e.g. `-MonoDebugPort=56100`) |
+| `-MonoDebugWait` | Suspend startup until a debugger attaches (equivalent to `bMonoWaitDebugger`) |
+
+Flags are compiled out in Shipping builds.
 
 1. Start the editor (JIT mode — required for `GetFunctionPointer()`)
 2. VS: **Debug → Attach to Process → Managed (.NET Core)** → `127.0.0.1:56000`
@@ -109,7 +120,7 @@ Mono-specific logic lives in **new files** (`CSMonoRuntime.h/.cpp`, `CSDotNetRun
 
 - Re-based on the rewritten class-based `FCSDotNetRuntimeHost` (upstream no longer has `GetRuntimeHostPath`); the `CSDotnetUtilties` seam from the old port is **gone entirely**.
 - Entry-point invocation adapted to the new signature (UTF-8 working directory + `FCSInitializationResult` out-struct); the temp-file exception roundtrip is no longer needed, and `mono_string_to_utf8` results are `mono_free`'d (old leak).
-- Adapted to MonoSDK's arch-aware layout: the BCL runtime dir resolves to `<Platform>/<arch>/runtime/` (e.g. `Mac/x64/runtime`) with a legacy flat `<Platform>/runtime` fallback, in the same order `MonoSDK.Build.cs` uses; `PackageProjectMono` validates and dedups against the same directory (Android requires the arch layout, because `MonoSDK_APL.xml` hardcodes `Android/arm64/`). Packaged iOS is the exception: the BCL is staged as UFS in `Content/Managed/IOS`, and the assembly preload hook loads corlib and the rest of the BCL from the PAK.
+- Adapted to MonoSDK's arch-aware layout: the BCL runtime dir resolves to `<Platform>/<arch>/runtime/` (e.g. `Mac/x64/runtime`) with a legacy flat `<Platform>/runtime` fallback, in the same order `MonoSDK.Build.cs` uses; `PackageProjectMono` validates and dedups against the same directory (Android requires the arch layout, because `MonoSDK_APL.xml` hardcodes `Android/arm64/`). Packaged Android and iOS are the exception: the BCL is mapped as UFS into `Content/Managed/<Platform>` and the assembly preload hook loads corlib and the rest of the BCL from the PAK. Project managed DLLs are published to `Binaries/Managed/<Platform>` and mapped to the same UFS path.
 - Platform-dir mapping deduplicated into `DotNetUtilities::GetMonoManagedPlatformDir()` (platform name — also the UAT `-TargetPlatform` value) plus `GetMonoSdkArchName()` / `GetMonoSdkPlatformDir()` (arch-qualified SDK path, e.g. `Mac/x64`).
 - `PackageProjectMono` validates the MonoSDK native/BCL directories up front (old: silent success on missing SDK); BCL dedup and editor-DLL strip are recursive and include `Newtonsoft.Json.dll`.
 - `PluginLoader.Plugins` is a `ConcurrentDictionary` (thread-safe load/unload).

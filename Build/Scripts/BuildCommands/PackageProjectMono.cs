@@ -1,8 +1,9 @@
 // PackageProjectMono.cs - Mono packaging command.
-// Reverse flow: publish managed DLLs to Content/Managed/<Platform> BEFORE UAT,
-// so MonoSDK.Build.cs stages them (project DLLs as UFS into the PAK). On iOS the BCL
-// is also staged as UFS in Content/Managed/<Platform>, so the preload hook can serve
-// corlib from the PAK; the other platforms stage the BCL as NonUFS.
+// Reverse flow: publish managed DLLs to Binaries/Managed/<Platform> BEFORE UAT, so
+// MonoSDK.Build.cs can map them (and the SDK's BCL) to the UFS virtual path
+// Content/Managed/<Platform>/ without a physical copy under Content/. Android and iOS
+// then serve both the BCL and the project assemblies from the PAK via the preload
+// hook; editor builds keep reading the BCL from the SDK directory.
 //
 // Differences from PackageProject (CoreCLR):
 //   - No ArchiveDirectory: publishes before UAT instead of into an archived build.
@@ -86,7 +87,7 @@ public class PackageProjectMono : BuildCommand
     private string GetPublishFolder(UnrealTargetPlatform platform)
     {
         string platformDir = GetManagedSubDir(platform);
-        return Path.Combine(this.GetProjectRootFolder(), "Content", "Managed", platformDir);
+        return Path.Combine(this.GetProjectRootFolder(), "Binaries", "Managed", platformDir);
     }
 
     private static string GetManagedSubDir(UnrealTargetPlatform targetPlatform)
@@ -109,7 +110,7 @@ public class PackageProjectMono : BuildCommand
         if (!string.IsNullOrEmpty(options.TargetArch))
             LoggerUtilities.LogUnrealSharpInfo($"Target Architecture: {options.TargetArch}");
         LoggerUtilities.LogUnrealSharpInfo($"UE Build Configuration: {options.BuildConfiguration}");
-        LoggerUtilities.LogUnrealSharpInfo($"Output: Content/Managed/{GetManagedSubDir(options.TargetPlatform)}");
+        LoggerUtilities.LogUnrealSharpInfo($"Output: Binaries/Managed/{GetManagedSubDir(options.TargetPlatform)}");
         if (options.UserParams is { Length: > 0 })
             LoggerUtilities.LogUnrealSharpInfo($"User Params: {string.Join(' ', options.UserParams)}");
     }
