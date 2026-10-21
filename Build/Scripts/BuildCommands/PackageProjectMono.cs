@@ -1,9 +1,11 @@
 // PackageProjectMono.cs - Mono packaging command.
-// Reverse flow: publish managed DLLs to Binaries/Managed/<Platform> BEFORE UAT, so
-// MonoSDK.Build.cs can map them (and the SDK's BCL) to the UFS virtual path
-// Content/Managed/<Platform>/ without a physical copy under Content/. Android and iOS
-// then serve both the BCL and the project assemblies from the PAK via the preload
-// hook; editor builds keep reading the BCL from the SDK directory.
+// Reverse flow: publish managed DLLs to Content/Managed/<Platform> BEFORE UAT, so
+// MonoSDK.Build.cs stages them as UFS into the PAK. Android and iOS serve the BCL and
+// the project assemblies from the PAK via the preload hook; editor builds keep reading
+// the BCL from the SDK directory.
+//
+// Binaries/ is deliberately NOT used: UE treats it as writable local state, and a UFS
+// entry under a Binaries/ path inside the PAK can interfere with that classification.
 //
 // Differences from PackageProject (CoreCLR):
 //   - No ArchiveDirectory: publishes before UAT instead of into an archived build.
@@ -17,6 +19,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using AutomationTool;
 using UnrealBuildTool;
 using UnrealSharp.Automation.Utilities;
@@ -28,7 +31,8 @@ namespace UnrealSharp.Automation.BuildCommands;
 [Help("UEBuildConfig=<Config>", "REQUIRED. Build configuration (Debug, Development, Shipping, Test).")]
 [Help("TargetPlatform=<Platform>", "REQUIRED. Target platform (Android, IOS, Mac, Win64). iOS is real-device only (UE 5.8 dropped the simulator).")]
 [Help("TargetArch=<arch>", "Optional. MonoSDK architecture directory (arm64, x64). Defaults to the platform's only arch; Mac defaults to the host architecture.")]
-[Help("UserParams", "Optional. Additional parameters (-UserParams=\"-p:Property=Value\").")]
+    [Help("UserParams", "Optional. Additional parameters (-UserParams=\"-p:Property=Value\").")]
+    [Help("MonoDebugSymbols", "Optional. Emit mono_debug_paths.json (build-machine absolute paths) so an IDE can resolve PDBs while debugging. Never emitted for Shipping.")]
 public class PackageProjectMono : BuildCommand
 {
     private const string ManagedFolderName = "Managed";
@@ -41,7 +45,8 @@ public class PackageProjectMono : BuildCommand
         UnrealTargetConfiguration BuildConfiguration,
         UnrealTargetPlatform TargetPlatform,
         string[]? UserParams = null,
-        string? TargetArch = null);
+        string? TargetArch = null,
+        bool DebugSymbols = false);
 
     /// <summary>Resolved MonoSDK directory: ArchName is null for the legacy flat layout.</summary>
     private sealed record SdkLayout(string PlatformName, string? ArchName)
@@ -81,13 +86,78 @@ public class PackageProjectMono : BuildCommand
         StripEditorOnlyDlls(PublishFolder);
         EmitInstalledFlagFile(PublishFolder);
 
+        // Opt-in only: the map contains absolute paths from this build machine and is
+        // only useful for a local debug session. Never ship it in Shipping builds.
+        if (options.DebugSymbols && options.BuildConfiguration != UnrealTargetConfiguration.Shipping)
+        {
+            EmitDebugSymbolMap(PublishFolder, Sdk);
+        }
+
+        // MonoSDK.Build.cs enumerates the publish directory at UBT rule-evaluation time,
+        // and UBT caches that file list in its makefile. A new/removed manifest (or any
+        // added/removed DLL) would be invisible to the next incremental build unless the
+        // rules are re-evaluated, so bump the Build.cs timestamp.
+        InvalidatedStagingRules();
+
         LoggerUtilities.LogUnrealSharpInfo($"Mono packaging complete. Published files: {PublishFolder}");
     }
 
     private string GetPublishFolder(UnrealTargetPlatform platform)
     {
         string platformDir = GetManagedSubDir(platform);
-        return Path.Combine(this.GetProjectRootFolder(), "Binaries", "Managed", platformDir);
+        return Path.Combine(this.GetProjectRootFolder(), "Content", "Managed", platformDir);
+    }
+
+    /// <summary>
+    /// Writes a name -> absolute build-machine path map for every managed assembly.
+    /// Packaged builds load assemblies from the PAK under UE virtual paths, which an IDE
+    /// cannot use to find a PDB. The Mono host reports these absolute paths to the
+    /// debugger instead, so Rider/VS find the PDB next to the DLL on the build machine.
+    /// Project assemblies win over BCL entries (same name).
+    /// </summary>
+    private void EmitDebugSymbolMap(string publishFolder, SdkLayout sdk)
+    {
+        string SdkRuntime = Path.Combine(sdk.ResolvePath(GetMonoSdkRootFolder()), "runtime");
+        Dictionary<string, string> Map = new(StringComparer.OrdinalIgnoreCase);
+
+        if (Directory.Exists(SdkRuntime))
+        {
+            foreach (string Dll in Directory.EnumerateFiles(SdkRuntime, "*.dll"))
+                Map[Path.GetFileName(Dll)] = Path.GetFullPath(Dll);
+        }
+
+        foreach (string Dll in Directory.EnumerateFiles(publishFolder, "*.dll"))
+            Map[Path.GetFileName(Dll)] = Path.GetFullPath(Dll);
+
+        StringBuilder Json = new();
+        Json.AppendLine("{");
+        int Index = 0;
+        foreach (KeyValuePair<string, string> Entry in Map)
+        {
+            Json.Append("  \"").Append(EscapeJson(Entry.Key)).Append("\": \"")
+                .Append(EscapeJson(Entry.Value)).Append('"');
+            if (++Index < Map.Count)
+                Json.Append(',');
+            Json.AppendLine();
+        }
+        Json.AppendLine("}");
+
+        File.WriteAllText(Path.Combine(publishFolder, "mono_debug_paths.json"), Json.ToString());
+        LoggerUtilities.LogUnrealSharpInfo($"[Mono] Debug symbol map: {Map.Count} assemblies");
+    }
+
+    private static string EscapeJson(string value)
+        => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
+    /// <summary>Forces UBT to re-evaluate MonoSDK.Build.cs so the per-file staging list
+    /// reflects what PackageProjectMono just published.</summary>
+    private void InvalidatedStagingRules()
+    {
+        string BuildCs = Path.Combine(GetMonoSdkRootFolder(), "MonoSDK.Build.cs");
+        if (File.Exists(BuildCs))
+        {
+            File.SetLastWriteTimeUtc(BuildCs, DateTime.UtcNow);
+        }
     }
 
     private static string GetManagedSubDir(UnrealTargetPlatform targetPlatform)
@@ -100,7 +170,9 @@ public class PackageProjectMono : BuildCommand
         UnrealTargetPlatform TargetPlatform = UnrealTargetPlatform.Parse(PlatformString);
         string[] UserParams = ParseParamValues("UserParams");
         string? TargetArch = ParseParamValue("TargetArch")?.ToLowerInvariant();
-        return new MonoPackagingOptions(TargetConfiguration, TargetPlatform, UserParams, TargetArch);
+        bool DebugSymbols = ParseParam("MonoDebugSymbols");
+        return new MonoPackagingOptions(TargetConfiguration, TargetPlatform, UserParams, TargetArch,
+            DebugSymbols);
     }
 
     private static void LogOptions(MonoPackagingOptions options)
@@ -110,7 +182,7 @@ public class PackageProjectMono : BuildCommand
         if (!string.IsNullOrEmpty(options.TargetArch))
             LoggerUtilities.LogUnrealSharpInfo($"Target Architecture: {options.TargetArch}");
         LoggerUtilities.LogUnrealSharpInfo($"UE Build Configuration: {options.BuildConfiguration}");
-        LoggerUtilities.LogUnrealSharpInfo($"Output: Binaries/Managed/{GetManagedSubDir(options.TargetPlatform)}");
+        LoggerUtilities.LogUnrealSharpInfo($"Output: Content/Managed/{GetManagedSubDir(options.TargetPlatform)}");
         if (options.UserParams is { Length: > 0 })
             LoggerUtilities.LogUnrealSharpInfo($"User Params: {string.Join(' ', options.UserParams)}");
     }

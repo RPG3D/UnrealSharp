@@ -40,13 +40,13 @@ BuildAndroid.bat Development
 
 Pipeline:
 1. `Build.bat SharpDemo Win64 <Config>` — build Game target (UHT/Game glue; UHT only runs on the host platform)
-2. `RunUAT PackageProjectMono -TargetPlatform=Android` — publish managed DLLs to `Binaries/Managed/Android/`
+2. `RunUAT PackageProjectMono -TargetPlatform=Android` — publish managed DLLs to `Content/Managed/Android/`
 3. `Build.bat SharpDemoEditor Win64 Development` — fill flat `Binaries/Managed/` (cook needs it)
 4. `RunUAT BuildCookRun -TargetPlatform=Android` — cook + pak + stage + archive
 
 Key mechanics:
-- **Publish location**: `PackageProjectMono` writes to `Binaries/Managed/<Platform>/` (gitignored). `MonoSDK.Build.cs` maps those files to the UFS destination `Content/Managed/<Platform>/`; UBT materializes that path as a build product (it is never an input and is gitignored).
-- **BCL** (runtime DLLs) is mapped from the SDK's `<Platform>/<arch>/runtime/` to the same UFS path on **Android and iOS** (the preload hook serves corlib and the rest of the BCL from the PAK). Editor builds keep reading the BCL from the SDK directory.
+- **Publish location**: `PackageProjectMono` writes directly to `Content/Managed/<Platform>/` (gitignored), and `MonoSDK.Build.cs` stages it as UFS. `Binaries/` is deliberately not used for PAK content: UE treats it as writable local state, and a UFS entry below `Binaries/` could interfere with that classification.
+- **BCL** (runtime DLLs) is staged from the SDK's `<Platform>/<arch>/runtime/` as UFS into `Content/Managed/<Platform>/` on **Android and iOS** (the preload hook serves corlib and the rest of the BCL from the PAK). Editor builds keep reading the BCL from the SDK directory.
 - **Project DLLs** staged as **UFS** (inside PAK, `Content/Managed/<Platform>/`) — hot-updatable alongside game assets.
 - **Load order** manifests tell UnrealSharp which assemblies to load
 - Assembly loading goes through a **UFS/pak-aware preload hook** (`mono_install_assembly_preload_hook` + `FFileHelper::LoadFileToArray`) — POSIX `fopen` cannot read PAK paths
@@ -96,6 +96,19 @@ Command-line overrides (highest precedence; put them in `UECommandLine.txt` for 
 | `-MonoDebugWait` | Suspend startup until a debugger attaches (equivalent to `bMonoWaitDebugger`) |
 
 Flags are compiled out in Shipping builds.
+
+**Breakpoints / source mapping (packaged builds)**: assemblies are loaded from the PAK
+under UE virtual paths (`../../../SharpDemo/Content/Managed/<Platform>/...`), which an IDE
+cannot use to locate a PDB. Build the debug package with:
+
+```
+RunUAT PackageProjectMono ... -MonoDebugSymbols
+```
+
+That emits `mono_debug_paths.json` (assembly → absolute build-machine path) next to the
+managed DLLs; the Mono host reports those paths to the debugger only while `-MonoDebug`
+is active, so Rider/VS find the PDB next to the DLL. The map is never emitted for
+Shipping, and omitting the flag keeps normal packages free of build-machine paths.
 
 1. Start the editor (JIT mode — required for `GetFunctionPointer()`)
 2. VS: **Debug → Attach to Process → Managed (.NET Core)** → `127.0.0.1:56000`
