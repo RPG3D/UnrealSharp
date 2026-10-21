@@ -163,6 +163,22 @@ static MonoAssembly* LoadAssemblyFromBytes(const FString& FilePath, const FStrin
 		false,  // refonly
 		TCHAR_TO_UTF8(*Name));
 
+	if (Image && Status == MONO_IMAGE_OK && GMonoDebuggerActive)
+	{
+		// PDB preload, mirroring the DLL preload: the sidecar .pdb lives next to the
+		// assembly in the PAK, which Mono's PPDB loader cannot open with POSIX I/O.
+		// Feed the bytes directly to the already-open image so the soft debugger has
+		// method tables and sequence points (breakpoints cannot bind without them).
+		const FString PdbPath = FPaths::ChangeExtension(FilePath, TEXT("pdb"));
+		TArray<uint8> PdbBytes;
+		if (FFileHelper::LoadFileToArray(PdbBytes, *PdbPath, FILEREAD_Silent))
+		{
+			mono_debug_open_image_from_memory(Image, PdbBytes.GetData(), PdbBytes.Num());
+			UE_LOG(LogUnrealSharp, Verbose, TEXT("[Mono] Loaded PDB from PAK: %s (%d bytes)"),
+				*PdbPath, PdbBytes.Num());
+		}
+	}
+
 	if (!Image || Status != MONO_IMAGE_OK)
 	{
 		UE_LOG(LogUnrealSharp, Warning,
@@ -324,9 +340,9 @@ void InitMonoDebugger(const UCSUnrealSharpSettings* Settings)
 
 	// Command-line opt-in, mirroring the CoreCLR line's -clrdebug: packaged builds can
 	// put "-MonoDebug" in UECommandLine.txt without rebuilding the ini defaults.
-	//   -MonoDebug            enable the soft debugger agent
+	//   -MonoDebug            enable the soft debugger agent (runtime keeps running)
+	//   -WaitMonoDebug        also suspend startup until a debugger attaches
 	//   -MonoDebugPort=NNNNN  override MonoDebuggerPort
-	//   -MonoDebugWait        suspend startup until a debugger attaches
 	const bool bCliDebug = FParse::Param(FCommandLine::Get(), TEXT("MonoDebug"));
 
 	if (Settings->bMonoPerformanceMode && !bCliDebug)
@@ -366,7 +382,7 @@ void InitMonoDebugger(const UCSUnrealSharpSettings* Settings)
 	}
 
 	const bool bWait = Settings->bMonoWaitDebugger ||
-		FParse::Param(FCommandLine::Get(), TEXT("MonoDebugWait"));
+		FParse::Param(FCommandLine::Get(), TEXT("WaitMonoDebug"));
 	// embedding=n + suspend=y: external debugger, runtime waits for attach
 	// embedding=y + suspend=n: embedded debugger, runtime starts immediately
 	const FString Args = FString::Printf(

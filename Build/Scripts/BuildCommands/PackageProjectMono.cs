@@ -78,6 +78,10 @@ public class PackageProjectMono : BuildCommand
         Arguments.Add("--no-self-contained");
         Arguments.Add("-p:GenerateDocumentation=false");
 
+        // Keep portable sidecar PDBs: the Mono host preloads <assembly>.pdb from the PAK
+        // and feeds it to mono_debug_open_image_from_memory (the same pattern as the DLL
+        // preload hook), so no embedded PDB or device file access is needed.
+
         BuildBindingsSolution(Arguments, options.BuildConfiguration);
         BuildUserBindings(PublishFolder, options, Arguments);
         BuildUserSolution(PublishFolder, Arguments, options.BuildConfiguration, options.UserParams);

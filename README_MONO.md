@@ -91,9 +91,9 @@ Command-line overrides (highest precedence; put them in `UECommandLine.txt` for 
 
 | Flag | Effect |
 |------|--------|
-| `-MonoDebug` | Enable the soft debugger agent even when `bEnableMonoDebugger=false` or `bMonoPerformanceMode=true` |
+| `-MonoDebug` | Enable the soft debugger agent even when `bEnableMonoDebugger=false` or `bMonoPerformanceMode=true`; the runtime keeps running |
+| `-WaitMonoDebug` | Used with `-MonoDebug`: suspend startup until a debugger attaches (equivalent to `bMonoWaitDebugger`) |
 | `-MonoDebugPort=NNNNN` | Override `MonoDebuggerPort` (e.g. `-MonoDebugPort=56100`) |
-| `-MonoDebugWait` | Suspend startup until a debugger attaches (equivalent to `bMonoWaitDebugger`) |
 
 Flags are compiled out in Shipping builds.
 
