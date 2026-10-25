@@ -28,6 +28,11 @@ public class UnrealSharpCore : ModuleRules
 				// Mono runtime linkage + public include paths for the Mono embedding headers.
 				// Public so the define propagates: MonoSDK -> UnrealSharpCore -> UnrealSharpEditor.
 				"MonoSDK",
+				// External ThirdParty module (Source/ThirdParty/CoreClrSDK/): raw-CoreCLR mobile
+				// host support. The module itself activates only for Android/iOS when the
+				// resolved backend is CoreCLR (see the backend gate inside CoreClrSDK.Build.cs);
+				// it is a no-op everywhere else (Mono backend, desktop hostfxr platforms).
+				"CoreClrSDK",
 			}
 			);
 		

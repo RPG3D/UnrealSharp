@@ -10,6 +10,14 @@
 #include <hostfxr.h>
 #endif
 
+// Mobile (Android/iOS) raw-CoreCLR host: coreclr_initialize C API from the
+// CoreClrSDK External module. Compile-time linked there (no hostfxr on mobile),
+// so gate on the backend as well — under Mono the CoreClrSDK include path is
+// inactive and this header is unavailable.
+#if (PLATFORM_ANDROID || PLATFORM_IOS) && !UNREALSHARP_MONO
+#include <coreclrhost.h>
+#endif
+
 #include "HAL/PlatformProcess.h"
 
 #if UNREALSHARP_MONO
@@ -56,6 +64,19 @@ private:
 	// bUseMono in DefaultEngine.ini (MonoSDK.Build.cs defines UNREALSHARP_MONO).
 	bool InitializeMonoHost();
 	MonoDomain* MonoRootDomain = nullptr;
+#endif
+
+#if (PLATFORM_ANDROID || PLATFORM_IOS) && !UNREALSHARP_MONO
+	// Mobile raw-CoreCLR backend (CSDotNetRuntimeHost_Mobile.cpp). Active on
+	// Android/iOS when the resolved runtime backend is CoreCLR (not Mono).
+	bool InitializeManagedRuntimeMobile();
+
+	bool EnsureRuntimeDllsExtracted(FString& OutRuntimeDir, TArray<FString>& OutSourceDllNames);
+
+	FString BuildTpa(const FString& RuntimeDir, const TArray<FString>& SourceDllNames) const;
+
+	void* CoreClrHandle = nullptr;      // coreclr host handle (from coreclr_initialize)
+	unsigned int CoreClrDomainId = 0;   // app domain id (from coreclr_initialize)
 #endif
 
 #if !UNREALSHARP_MONO || WITH_EDITOR

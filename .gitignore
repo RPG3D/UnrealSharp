@@ -85,3 +85,5 @@ obj/
 !UnrealSharp.Automation.props
 
 /Managed/Binaries/
+
+.claude/

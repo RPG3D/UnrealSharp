@@ -1,3 +1,6 @@
 [submodule "Source/ThirdParty/MonoSDK"]
 	path = Source/ThirdParty/MonoSDK
 	url = https://github.com/RPG3D/MonoSDK.git
+[submodule "Source/ThirdParty/CoreClrSDK"]
+	path = Source/ThirdParty/CoreClrSDK
+	url = https://github.com/RPG3D/CoreClrSDK.git

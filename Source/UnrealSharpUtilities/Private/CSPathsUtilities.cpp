@@ -4,6 +4,7 @@
 #include "CSDotnetUtilties.h"
 #include "CSInstallationUtilities.h"
 #include "CSProjectUtilities.h"
+#include "HAL/FileManager.h"
 #include "Interfaces/IPluginManager.h"
 #include "Logging/StructuredLog.h"
 
@@ -56,6 +57,13 @@ FString UnrealSharp::Paths::GetUserAssemblyDirectory()
     // resolves UFS entries through IFileManager's pak mount, which keys on absolute paths.
     return FPaths::ConvertRelativePathToFull(
         FPaths::Combine(FPaths::ProjectContentDir(), TEXT("Managed"), DotNetUtilities::GetMonoManagedPlatformDir()));
+#elif (PLATFORM_ANDROID || PLATFORM_IOS) && !WITH_EDITOR
+    // Mobile CoreCLR packaged build: FCSDotNetRuntimeHost::EnsureRuntimeDllsExtracted
+    // copies BCL + project DLLs from the PAK into a real OS directory under Saved/
+    // (CoreCLR needs real filesystem paths for the TPA). Must stay in sync with the
+    // extraction dir in CSDotNetRuntimeHost_Mobile.cpp.
+    return IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(
+        *FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Managed"), UTF8_TO_TCHAR(FPlatformProperties::PlatformName())));
 #else
     return FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectDir(), DotNetUtilities::GetManagedBinaries()));
 #endif

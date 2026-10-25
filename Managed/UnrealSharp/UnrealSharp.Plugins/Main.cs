@@ -16,8 +16,12 @@ internal unsafe struct FCSInitializationResult
 
 internal static class Main
 {
+    // Public so the Android/iOS raw-CoreCLR host can resolve it via
+    // coreclr_create_delegate (type name "UnrealSharp.Plugins.Main", no assembly
+    // suffix). Desktop hostfxr resolves via load_assembly_and_get_function_pointer
+    // and does not care about visibility.
     [UnmanagedCallersOnly]
-    private static unsafe void InitializeUnrealSharp(
+    public static unsafe void InitializeUnrealSharp(
         byte* workingDirectoryUtf8,
         PluginsCallbacks* pluginCallbacks,
         nint bindsCallbacks,

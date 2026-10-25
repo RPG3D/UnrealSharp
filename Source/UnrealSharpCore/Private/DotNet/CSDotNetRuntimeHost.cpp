@@ -33,8 +33,12 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 		UE_LOGFMT(LogUnrealSharp, Fatal, "Failed to initialize Mono host.");
 	}
 	return true;
+#elif PLATFORM_ANDROID || PLATFORM_IOS
+	// --- Mobile raw-CoreCLR path (Android/iOS when the resolved backend is CoreCLR;
+	//     Android/iOS default to Mono, see UnrealSharpRuntimeSelection) ---
+	return InitializeManagedRuntimeMobile();
 #else
-	// --- CoreCLR path (upstream default: hostfxr) ---
+	// --- Desktop CoreCLR path (upstream default: hostfxr) ---
 	load_assembly_and_get_function_pointer_fn LoadAssemblyAndGetFunctionPointer = InitializeHost();
 	if (!LoadAssemblyAndGetFunctionPointer)
 	{
@@ -88,7 +92,7 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 #endif
 
 	return true;
-#endif // UNREALSHARP_MONO
+#endif // UNREALSHARP_MONO / mobile / desktop hostfxr
 }
 
 void FCSDotNetRuntimeHost::ShutdownManagedRuntime()
@@ -96,9 +100,14 @@ void FCSDotNetRuntimeHost::ShutdownManagedRuntime()
 #if UNREALSHARP_MONO
 	ShutdownMonoRuntime(MonoRootDomain);
 	MonoRootDomain = nullptr;
-#endif
-
-#if !UNREALSHARP_MONO || WITH_EDITOR
+#elif (PLATFORM_ANDROID || PLATFORM_IOS) && !UNREALSHARP_MONO
+	if (CoreClrHandle)
+	{
+		coreclr_shutdown(CoreClrHandle, CoreClrDomainId);
+	}
+	CoreClrHandle = nullptr;
+	CoreClrDomainId = 0;
+#else
 	if (RuntimeHost)
 	{
 		FPlatformProcess::FreeDllHandle(RuntimeHost);

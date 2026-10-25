@@ -12,6 +12,7 @@
 #include "Kismet2/StructureEditorUtils.h"
 #include "Misc/Paths.h"
 #include "Types/CSScriptStruct.h"
+#include "UObject/UObjectIterator.h"
 #include "Utilities/CSAssemblyUtilities.h"
 #include "Utilities/CSClassUtilities.h"
 
