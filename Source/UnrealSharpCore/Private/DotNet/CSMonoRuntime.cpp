@@ -481,7 +481,7 @@ MonoDomain* InitializeMonoRuntime(const FString& RuntimeDir, const FString& Extr
 			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ManifestJson);
 			if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
 			{
-				for (const TPair<FString, TSharedPtr<FJsonValue>>& Entry : Root->Values)
+				for (TPair<FString, TSharedPtr<FJsonValue>> Entry : Root->Values)
 				{
 					if (Entry.Value.IsValid() && Entry.Value->Type == EJson::String)
 					{
