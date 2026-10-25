@@ -29,9 +29,10 @@ internal static class Main
             AppDomain.CurrentDomain.SetData("APP_CONTEXT_BASE_DIRECTORY",
                 Marshal.PtrToStringUTF8((nint)workingDirectoryUtf8)!);
 
-#if WITH_EDITOR && !UNREALSHARP_MONO
-            // Microsoft.Build.Locator is not usable under the Mono BCL (the Roslyn-based
-            // editor backend is not loaded at all on Mono; hot reload goes through dotnet build).
+#if WITH_EDITOR
+            // Editor-only: MSBuild.Locator backs the Roslyn-based editor backend. Under Mono
+            // it cannot register (hostpolicy-gated; hot reload there goes through dotnet
+            // build) — TryRegisterMSBuild degrades to a no-op via its own try/catch.
             TryRegisterMSBuild();
 #endif
 
@@ -59,18 +60,27 @@ internal static class Main
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void TryRegisterMSBuild()
     {
-        var instance = Microsoft.Build.Locator.MSBuildLocator
-            .QueryVisualStudioInstances()
-            .OrderByDescending(i => i.Version)
-            .FirstOrDefault();
+        // MSBuildLocator is hostpolicy-gated and throws under Mono; a failure here must
+        // never abort InitializeUnrealSharp (the native side treats init failure as Fatal).
+        try
+        {
+            var instance = Microsoft.Build.Locator.MSBuildLocator
+                .QueryVisualStudioInstances()
+                .OrderByDescending(i => i.Version)
+                .FirstOrDefault();
 
-        if (instance != null)
-        {
-            Microsoft.Build.Locator.MSBuildLocator.RegisterInstance(instance);
+            if (instance != null)
+            {
+                Microsoft.Build.Locator.MSBuildLocator.RegisterInstance(instance);
+            }
+            else
+            {
+                Microsoft.Build.Locator.MSBuildLocator.RegisterDefaults();
+            }
         }
-        else
+        catch (Exception ex)
         {
-            Microsoft.Build.Locator.MSBuildLocator.RegisterDefaults();
+            Console.WriteLine($"[UnrealSharp] MSBuild.Locator registration skipped: {ex.Message}");
         }
     }
 #endif

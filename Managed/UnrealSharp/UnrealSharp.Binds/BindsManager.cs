@@ -14,6 +14,12 @@ public static class NativeBinds
         _getBoundFunction = (delegate* unmanaged[Cdecl]<char*, char*, int, IntPtr>)bindsCallbacks;
     }
 
+    // True once Initialize() has run. Callers that may fire before InitializeUnrealSharp
+    // completes (e.g. logging from an early plugin-load failure) must gate on this:
+    // FMsgExporter's cctor goes through TryGetBoundFunction and would otherwise poison
+    // its type with a failed static initialization.
+    public static unsafe bool IsInitialized => _getBoundFunction != null;
+
     public static unsafe IntPtr TryGetBoundFunction(string outerName, string functionName, int functionSize)
     {
         if (_getBoundFunction == null)

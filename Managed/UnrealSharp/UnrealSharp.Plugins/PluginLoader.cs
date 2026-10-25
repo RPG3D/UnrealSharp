@@ -2,6 +2,7 @@
 	using System.Diagnostics;
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
+	using UnrealSharp.Binds;
 	using UnrealSharp.Engine.Core.Modules;
 
 namespace UnrealSharp.Plugins;
@@ -37,15 +38,19 @@ public static class PluginLoader
 		}
 		catch (Exception ex)
 		{
-#if UNREALSHARP_MONO
-			// Under Mono, avoid calling the logging system here because FMsgExporter may not yet
-			// be initialized (its .cctor calls NativeBinds.TryGetBoundFunction), causing
-			// re-entrant initialization and a crash. Write to a temp file instead.
-			try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "UnrealSharp_LoadPlugin_Exception.txt"), ex.ToString()); } catch { }
-			Console.WriteLine($"[Mono] LoadPlugin error: {ex}");
-#else
-			LogUnrealSharpPlugins.LogError($"An error occurred while loading the plugin: {ex.Message}");
-#endif
+			if (NativeBinds.IsInitialized)
+			{
+				LogUnrealSharpPlugins.LogError($"An error occurred while loading the plugin: {ex.Message}");
+			}
+			else
+			{
+				// The native binds are not ready yet (failure before InitializeUnrealSharp
+				// finished). Calling the log system here would run FMsgExporter's cctor,
+				// which re-enters initialization and crashes — on any backend. Degrade to a
+				// temp-file + console report instead.
+				try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "UnrealSharp_LoadPlugin_Exception.txt"), ex.ToString()); } catch { }
+				Console.WriteLine($"[UnrealSharp] LoadPlugin error: {ex}");
+			}
 		}
 
 		return null;
@@ -68,18 +73,10 @@ public static class PluginLoader
 
 		string assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
 
-#if UNREALSHARP_MONO
-		// Mono's native ALC layer forces collectible=FALSE, so ALC.Unload() is a
-		// no-op — the ALC and its assemblies are never reclaimed by GC. This path
-		// still releases managed GCHandles (FreeAssembly via Plugin.Unload) and
-		// discards the plugin's managed state. In the editor (hot reload) a new
-		// PluginLoadContext is created for the reloaded assembly; the old ALC is
-		// intentionally leaked (acceptable during development). Packaged runtime
-		// builds never call this path (no unload).
-		RemovePlugin(assemblyName);
-		LogUnrealSharpPlugins.Log($"[Mono] Unload requested for {assemblyName}. ALC is not collectible on Mono; managed handles released.");
-		return;
-#else
+		// Unified for Mono and CoreCLR: Unload() and the Unloading event work on both
+		// backends with this MonoSDK (verified empirically on mono 10.0.13). If the ALC
+		// cannot be reclaimed, the wait loop exits with a warning and managed handles are
+		// still released — same net effect as the old Mono-only early return.
 		WeakReference? weakAlc = RemovePlugin(assemblyName);
 
 		if (weakAlc == null)
@@ -128,7 +125,6 @@ public static class PluginLoader
 		{
 			LogUnrealSharpPlugins.LogError($"An error occurred while unloading the plugin: {exception}");
 		}
-#endif
 	}
 
 	public static Plugin? FindPlugin(Type type)

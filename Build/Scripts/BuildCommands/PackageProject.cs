@@ -173,10 +173,6 @@ public class PackageProject : BuildCommand
             $"-p:PublishDir=\"{publishFolder}\"",
         ];
 
-        // Inject UseMonoRuntime when Mono is configured (ini), so UNREALSHARP_MONO is
-        // defined in all managed DLLs without needing an explicit flag.
-        BuildCommands.BuildSolution.InjectMonoRuntimeProperty(this.GetProjectRootFolder(), arguments);
-
         return arguments;
     }
 

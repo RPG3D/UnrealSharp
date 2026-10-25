@@ -9,7 +9,6 @@
 //
 // Differences from PackageProject (CoreCLR):
 //   - No ArchiveDirectory: publishes before UAT instead of into an archived build.
-//   - -p:UseMonoRuntime=true so UNREALSHARP_MONO is defined in all managed DLLs.
 //   - BCL-duplicate DLLs are removed from the publish output (the BCL is staged separately).
 //   - Editor-only NuGet leakage (Microsoft.Build*/Microsoft.CodeAnalysis*/Newtonsoft.Json)
 //     is stripped recursively.
@@ -321,7 +320,6 @@ public class PackageProjectMono : BuildCommand
         return new List<string>
         {
             "-m:1",
-            "-p:UseMonoRuntime=true",
             // Publish ONLY into PublishFolder. Without this the bindings build also writes
             // Game-target outputs into the plugin's own flat Binaries/Managed/<tfm>/,
             // clobbering the editor-glue DLLs the cook's editor process needs.
@@ -435,8 +433,9 @@ public class PackageProjectMono : BuildCommand
     }
 
     /// <summary>Remove editor-only NuGet packages that leak into the publish output through
-    /// flat Binaries HintPath references. MSBuildLocator is guarded by #if !UNREALSHARP_MONO in
-    /// source but the NuGet reference still resolves the DLLs transitively.
+    /// flat Binaries HintPath references. MSBuildLocator is skipped at runtime on Mono
+    /// (try/catch in Main.TryRegisterMSBuild) but the NuGet reference still resolves the
+    /// DLLs transitively, so the publish strips them.
     /// REVIEW-fix: recursive search + Newtonsoft.Json (MSBuildLocator transitive dependency).</summary>
     private static void StripEditorOnlyDlls(string publishFolder)
     {

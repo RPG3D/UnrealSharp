@@ -96,7 +96,10 @@ FString UnrealSharp::DotNetUtilities::GetDotNetDirectory()
 	PathVariable.ParseIntoArray(Paths, FPlatformMisc::GetPathVarDelimiter());
 
 #if defined(_WIN32)
-	const FString PathMarker = TEXT("Program Files\\dotnet\\");
+	// No trailing separator here: PATH entries legitimately end without one (the plain
+	// Windows form), and MSYS/Git Bash rewrites drop it entirely. The match below must
+	// not depend on the entry's trailing-separator style.
+	const FString PathMarker = TEXT("Program Files\\dotnet");
 #else
 	const FString PathMarker = TEXT("dotnet");
 #endif
@@ -117,6 +120,15 @@ FString UnrealSharp::DotNetUtilities::GetDotNetDirectory()
 
 		DotNetPathFromEnv = Path;
 		break;
+	}
+
+	// Normalize so callers can concatenate file names (GetDotNetExecutablePath & co):
+	// keep exactly one trailing separator whatever form the PATH entry had.
+	if (!DotNetPathFromEnv.IsEmpty()
+		&& !DotNetPathFromEnv.EndsWith(TEXT("/"))
+		&& !DotNetPathFromEnv.EndsWith(TEXT("\\")))
+	{
+		DotNetPathFromEnv += FPlatformMisc::GetDefaultPathSeparator();
 	}
 
 	return DotNetPathFromEnv;

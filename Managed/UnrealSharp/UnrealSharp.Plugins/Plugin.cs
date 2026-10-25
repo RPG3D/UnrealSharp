@@ -43,16 +43,12 @@ public class Plugin
         }
     }
 
-    // Factory method: creates the appropriate AssemblyLoadContext for the current runtime backend.
+    // Factory method: creates the plugin load context. The Mono/CoreCLR difference
+    // (AssemblyDependencyResolver needs hostpolicy) is resolved inside PluginLoadContext
+    // by capability probing — no backend #if.
     private static AssemblyLoadContext CreateLoadContext(string pluginName, string assemblyPath, bool isCollectible)
     {
-#if UNREALSHARP_MONO
-        // Mono does not support AssemblyDependencyResolver (requires CoreCLR hostpolicy).
-        string pluginDir = Path.GetDirectoryName(assemblyPath) ?? AppContext.BaseDirectory;
-        return new PluginLoadContext(pluginName, pluginDir, isCollectible);
-#else
-        return new PluginLoadContext(pluginName, new AssemblyDependencyResolver(assemblyPath), isCollectible);
-#endif
+        return new PluginLoadContext(pluginName, assemblyPath, isCollectible);
     }
 
     public void AddModuleInterfaceInit(Func<IModuleInterface> initFunction)

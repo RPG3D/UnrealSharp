@@ -55,13 +55,11 @@ public class UnrealSharpCore : ModuleRules
 
         PublicIncludePaths.AddRange(new string[] { ModuleDirectory });
         PublicDefinitions.Add("ForceAsEngineGlue=1");
-        // MonoSDK (External module) defines UNREALSHARP_MONO=1/0 and links the Mono runtime
-        // when bUseMono=true in DefaultEngine.ini. When Mono is active on a non-editor target,
-        // the CoreCLR/hostfxr headers are unused, so skip the include path.
-        bool bUseMonoRuntime = false;
-        ConfigHierarchy EngineIni = ConfigCache.ReadHierarchy(ConfigHierarchyType.Engine,
-            DirectoryReference.FromFile(Target.ProjectFile), Target.Platform);
-        EngineIni.GetBool("UnrealSharp", "bUseMono", out bUseMonoRuntime);
+        // MonoSDK (External module) defines UNREALSHARP_MONO=1/0 via the shared
+        // UnrealSharpRuntimeSelection resolver (DotNetRuntime / DotNetRuntimeEditor /
+        // platform defaults). When Mono is active on a non-editor target, the
+        // CoreCLR/hostfxr headers are unused, so skip the include path.
+        bool bUseMonoRuntime = UnrealSharpRuntimeSelection.ShouldUseMono(Target);
         if (!bUseMonoRuntime || Target.bBuildEditor)
         {
             PublicSystemIncludePaths.Add(Path.Combine(PluginDirectory, "Managed", "DotNetRuntime", "inc"));
