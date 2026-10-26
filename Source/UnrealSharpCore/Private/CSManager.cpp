@@ -286,7 +286,13 @@ FGCHandle UCSManager::FindManagedObject(const UObject* Object)
 		return FGCHandle::InvalidHandle();
 	}
 
-	return *OwningAssembly->CreateManagedObjectFromNative(Object);
+	TSharedPtr<FGCHandle> NewHandle = OwningAssembly->CreateManagedObjectFromNative(Object);
+	if (!NewHandle.IsValid())
+	{
+		return FGCHandle::InvalidHandle();
+	}
+
+	return *NewHandle;
 }
 
 FGCHandle UCSManager::FindManagedInterfaceWrapper(UObject* Object, UClass* InterfaceClass)
