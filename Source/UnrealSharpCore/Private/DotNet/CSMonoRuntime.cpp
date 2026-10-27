@@ -4,6 +4,10 @@
 
 #if UNREALSHARP_MONO
 
+#if PLATFORM_IOS
+#include <sys/stat.h>
+#endif
+
 #include "CSMonoRuntime.h"
 #include "UnrealSharpCore.h"
 #include "CSPathsUtilities.h"
@@ -291,16 +295,37 @@ static void PurgeStaleOverrideDlls(const FString& SavedOverrideDir)
 #endif
 
 	IPlatformFile& PF = FPlatformFileManager::Get().GetPlatformFile();
-	const FFileStatData ExecStat = PF.GetStatData(*ExecPath);
 
-	if (!ExecStat.bIsValid)
+	// The executable lives outside the pak, so IPlatformFile (top of the chain is the
+	// pak layer) reports it as invalid - that silently disabled this purge on iOS and
+	// let an old CoreLib shadow the packaged one until Mono aborted with "AOT module
+	// 'System.Private.CoreLib' ... doesn't match assembly". Query the OS directly, the
+	// same way FPipelineFileCacheManager::ClearOSPipelineCache does on iOS.
+	bool bExecStatKnown = false;
+	FDateTime ExecMtime;
+#if PLATFORM_IOS
+	struct stat FileInfo;
+	if (stat(TCHAR_TO_UTF8(*ExecPath), &FileInfo) == 0)
+	{
+		ExecMtime = FDateTime::FromUnixTimestamp(FileInfo.st_mtime);
+		bExecStatKnown = true;
+	}
+#else
+	const FFileStatData ExecStat = PF.GetStatData(*ExecPath);
+	if (ExecStat.bIsValid)
+	{
+		ExecMtime = ExecStat.ModificationTime;
+		bExecStatKnown = true;
+	}
+#endif
+
+	// Without a valid executable timestamp there is no way to prove an override is
+	// newer than the shipped payload, so treat every override as stale and drop it.
+	if (!bExecStatKnown)
 	{
 		UE_LOG(LogUnrealSharp, Warning,
-			TEXT("[Mono] Could not stat executable for override-DLL staleness check: %s"), *ExecPath);
-		return;
+			TEXT("[Mono] Could not stat executable (%s); treating all override DLLs as stale"), *ExecPath);
 	}
-
-	const FDateTime ExecMtime = ExecStat.ModificationTime;
 
 	if (PF.DirectoryExists(*SavedOverrideDir))
 	{
@@ -311,10 +336,11 @@ static void PurgeStaleOverrideDlls(const FString& SavedOverrideDir)
 				const FString DllPath(FilenameOrDir);
 				if (!DllPath.EndsWith(TEXT(".dll"), ESearchCase::IgnoreCase)) return true;
 
-				if (ExecMtime > DllStat.ModificationTime)
+				if (!bExecStatKnown || ExecMtime > DllStat.ModificationTime)
 				{
 					UE_LOG(LogUnrealSharp, Warning,
-						TEXT("[Mono] Removing stale override DLL (exe newer than DLL): %s"),
+						TEXT("[Mono] Removing stale override DLL (%s): %s"),
+						bExecStatKnown ? TEXT("exe newer than DLL") : TEXT("no executable timestamp"),
 						FilenameOrDir);
 					PF.DeleteFile(FilenameOrDir);
 				}
