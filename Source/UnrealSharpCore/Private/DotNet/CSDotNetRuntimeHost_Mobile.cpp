@@ -44,39 +44,43 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/ConfigCacheIni.h"   // GConfig (ini trigger)
-#include "host_runtime_contract.h"
 #include <string>
 #include <cstdlib>   // setenv (DOTNET_DiagnosticPorts / DOTNET_DefaultDiagnosticPortSuspend)
 
 #if PLATFORM_IOS
 #import <Foundation/Foundation.h>
-#include <dlfcn.h>
+#endif
 
-static host_runtime_contract GHostContract;
+#if PLATFORM_ANDROID || PLATFORM_IOS
+#include "host_runtime_contract.h"
+#include <cstdint>
 
-static const void* CoreClrPinvokeOverride(const char* LibraryName, const char* EntryPointName)
-{
-	return (strcmp(LibraryName, "__Internal") == 0) ? dlsym(RTLD_DEFAULT, EntryPointName) : nullptr;
-}
-
+// System.Private.CoreLib.dll is the one assembly the runtime does NOT resolve through
+// TPA: it appends the name to its own module directory (vm/appdomain.cpp:
+// m_BaseLibrary = m_SystemDirectory + g_pwBaseLibrary). Mobile cannot satisfy that:
+// Android's module dir is the APK's read-only lib/arm64-v8a/ (and Gradle strips
+// non-.so files from it), iOS's is inside CoreCLR.framework. The copy of CoreLib we
+// want to run lives in the writable save dir next to the rest of the BCL - in the PAK,
+// hot-updatable - so the host hands those exact bytes to the runtime through the
+// contract. Deliberately no fallback: if this probe does not answer, the runtime looks
+// in the framework and finds nothing, which is the behaviour we want to see fail loudly
+// rather than silently running a second, non-updatable copy (0x80070002).
 static TArray<uint8> GSpclBytes;
+static FString GSpclDir;
 
-static FString GCoreClrExtractionDir;
-
-static bool CoreClrExternalAssemblyProbe(const char* Path, void** DataStart, int64* Size)
+static bool CoreClrExternalAssemblyProbe(const char* Path, void** DataStart, int64_t* Size)
 {
 	const char* Name = strrchr(Path, '/');
 	Name = Name ? Name + 1 : Path;
-	
+
 	if (strcmp(Name, "System.Private.CoreLib.dll") != 0)
 	{
 		return false;
 	}
-	
+
 	if (GSpclBytes.Num() == 0)
 	{
-		FString SpclPath = FPaths::Combine(GCoreClrExtractionDir, TEXT("System.Private.CoreLib.dll"));
-	
+		const FString SpclPath = FPaths::Combine(GSpclDir, TEXT("System.Private.CoreLib.dll"));
 		if (!FFileHelper::LoadFileToArray(GSpclBytes, *SpclPath))
 		{
 			UE_LOG(LogUnrealSharp, Error, TEXT("[CoreClr] external_assembly_probe: SPCL not found at %s"), *SpclPath);
@@ -84,12 +88,11 @@ static bool CoreClrExternalAssemblyProbe(const char* Path, void** DataStart, int
 		}
 		UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] external_assembly_probe: loaded SPCL at %s"), *SpclPath);
 	}
-	
+
 	*DataStart = GSpclBytes.GetData();
 	*Size = GSpclBytes.Num();
 	return true;
 }
-
 #endif
 
 // CoreCLR error-writer callback — forwards each diagnostic line to UE_LOG.
@@ -320,13 +323,37 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 		return false;
 	}
 	
-	const FString CoreClrRuntimeDir = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*RuntimeDir);
-
+	// TRUSTED_PLATFORM_ASSEMBLIES needs real OS paths, but UE keeps them project-relative
+	// ("../../../<Project>/Saved/...") for its own file layer and iOS does not absolutize
+	// them (Android's ConvertToAbsolutePathForExternalAppForRead does). Ask the OS for the
+	// sandbox Documents dir and rebuild the tail from there:
+	//   <Documents>/<Project>/Saved/Managed/<Platform>
+	FString CoreClrRuntimeDir = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*RuntimeDir);
 #if PLATFORM_IOS
-	GCoreClrExtractionDir = RuntimeDir;
-	setenv("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1", 1);
+	{
+		NSString* Documents = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+		const FString ProjectName(FApp::GetProjectName());
+		const FString SandboxProjectRoot = FPaths::Combine(FString(Documents), ProjectName);
+
+		FString Suffix = RuntimeDir;
+		while (Suffix.StartsWith(TEXT("../")))
+		{
+			Suffix.RightChopInline(3, EAllowShrinking::No);
+		}
+		if (Suffix.StartsWith(ProjectName) && Suffix.Len() > ProjectName.Len())
+		{
+			Suffix.RightChopInline(ProjectName.Len() + 1, EAllowShrinking::No);
+		}
+		if (Suffix.IsEmpty())
+		{
+			Suffix = FString::Printf(TEXT("Saved/Managed/%s"), *PlatformName);
+		}
+		CoreClrRuntimeDir = FPaths::Combine(SandboxProjectRoot, Suffix);
+		UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] Runtime dir: raw='%s' absolute='%s'"),
+			*RuntimeDir, *CoreClrRuntimeDir);
+	}
 #endif
-	
+
 	// 2. libcoreclr.so is compile-time linked (CoreClrSDK.Build.cs) and staged into
 	//    APK lib/arm64-v8a/ by the APL, so the OS linker resolves it at load time.
 	//    We call the coreclr_* functions directly via the coreclrhost.h prototypes.
@@ -340,52 +367,99 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 	// 5. coreclr_initialize. Keep UTF-8 std::strings alive across the call.
 	const std::string TpaUtf8 = TCHAR_TO_UTF8(*Tpa);
 	const std::string DirUtf8 = TCHAR_TO_UTF8(*CoreClrRuntimeDir);
-	
+
+	// One contract for both mobile platforms: CoreLib comes from the extracted (PAK-fed)
+	// save dir, never from the framework. See CoreClrExternalAssemblyProbe above.
+	// MUST be static: coreclr_initialize stores the struct POINTER (dlls/mscoree/
+	// exports.cpp: *hostContract = hostContractLocal) and reads the probe from it on
+	// every later assembly bind - a stack local would dangle once this function returns.
+	static host_runtime_contract MobileHostContract;
+	memset(&MobileHostContract, 0, sizeof(MobileHostContract));
+	MobileHostContract.size = sizeof(host_runtime_contract);
+	MobileHostContract.external_assembly_probe = &CoreClrExternalAssemblyProbe;
+	GSpclDir = CoreClrRuntimeDir;
+	char ContractStr[32];
+	snprintf(ContractStr, sizeof(ContractStr), "0x%zx", reinterpret_cast<size_t>(&MobileHostContract));
+
 #if PLATFORM_ANDROID
 	const std::string ExePathUtf8 = TCHAR_TO_UTF8(*(CoreClrRuntimeDir / TEXT("UnrealSharp.Plugins.dll")));
 
 	const char* PropertyKeys[] = {
+		"RUNTIME_IDENTIFIER",
 		"TRUSTED_PLATFORM_ASSEMBLIES",
 		"APP_CONTEXT_BASE_DIRECTORY",
 		"NATIVE_DLL_SEARCH_DIRECTORIES",
+		"HOST_RUNTIME_CONTRACT",
 	};
 	const char* PropertyValues[] = {
+		"android-arm64",
 		TpaUtf8.c_str(),
 		DirUtf8.c_str(),
 		DirUtf8.c_str(),  // native .so are in the linker search path (loaded by APL)
+		ContractStr,
 	};
 	
+	static_assert(sizeof(PropertyKeys) / sizeof(PropertyKeys[0])
+		== sizeof(PropertyValues) / sizeof(PropertyValues[0]), "property keys/values count mismatch");
+
 #elif PLATFORM_IOS
 	const std::string ExePathUtf8 = [[[[NSBundle mainBundle] executableURL] path] UTF8String];
-	memset(&GHostContract, 0, sizeof(GHostContract));
-	GHostContract.size = sizeof(host_runtime_contract);
-	GHostContract.pinvoke_override = &CoreClrPinvokeOverride;
-	GHostContract.external_assembly_probe = &CoreClrExternalAssemblyProbe;
-	char ContractStr[32];
-	snprintf(ContractStr, sizeof(ContractStr), "0x%zx", reinterpret_cast<size_t>(&GHostContract));
-	
+	// Same as the IOSClrDemo harness: .NET 11 iOS builds ship without dynamic code, so the
+	// interpreter is the only option. The switch is a no-op when already built that way.
+	setenv("DOTNET_Interpreter", "1", 1);
+	// Invariant globalization is the one AppContext switch a raw host can still reach, via
+	// the env var (see the property note below).
+	setenv("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1", 1);
+
+	// Interop shims (libSystem.Native, libSystem.Globalization.Native, ...) live inside
+	// CoreCLR.framework/Frameworks/ and are plain dlopen targets. This is the search path
+	// the runtime probes for them; with it unset the first P/Invoke surfaces as
+	// DllNotFoundException, whose own message lookup recurses into globalization and ends
+	// in FailFast instead of a managed exception.
+	NSString* BundlePath = [[NSBundle mainBundle] bundlePath];
+	const FString NativeSearchDir = FPaths::Combine(FString(BundlePath), TEXT("Frameworks"),
+		TEXT("CoreCLR.framework"), TEXT("Frameworks"));
+	const std::string NativeSearchDirUtf8 = TCHAR_TO_UTF8(*NativeSearchDir);
+	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] Native search dir: %s"), *NativeSearchDir);
+
+#if defined(TARGET_OS_SIMULATOR) && TARGET_OS_SIMULATOR
+	const char* RuntimeIdentifier = "iossimulator-arm64";
+#else
+	const char* RuntimeIdentifier = "ios-arm64";
+#endif
+
+	// coreclr_initialize consumes only the host properties it knows (TPA,
+	// NATIVE_DLL_SEARCH_DIRECTORIES, APP_PATHS, PLATFORM_RESOURCE_ROOTS, the bundle probe,
+	// PINVOKE_OVERRIDE, HOST_RUNTIME_CONTRACT - see dlls/mscoree/exports.cpp). AppContext
+	// switches such as System.Globalization.Invariant are translated by hostpolicy, which a
+	// raw host does not have, so invariant mode comes from the env var set above instead.
 	const char* PropertyKeys[] = {
 		"RUNTIME_IDENTIFIER",
 		"APP_CONTEXT_BASE_DIRECTORY",
 		"TRUSTED_PLATFORM_ASSEMBLIES",
+		"NATIVE_DLL_SEARCH_DIRECTORIES",
 		"HOST_RUNTIME_CONTRACT",
 		"System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported",
 		"System.Runtime.InteropServices.EnableConsumingManagedCodeFromNativeHosting",
 		"System.Threading.EnableAutoreleasePool",
-		"System.Globalization.InvariantGlobalization",
 	};
-	
+
 	const char* PropertyValues[] = {
-		"iossimulator-arm64",
+		RuntimeIdentifier,
 		DirUtf8.c_str(),
 		TpaUtf8.c_str(),
+		NativeSearchDirUtf8.c_str(),
 		ContractStr,
 		"false",
 		"true",
 		"true",
-		"true",
 	};
 	
+	// Keys and values MUST stay index-aligned: coreclr_initialize pairs them by position,
+	// so an extra value silently shifts every later property.
+	static_assert(sizeof(PropertyKeys) / sizeof(PropertyKeys[0])
+		== sizeof(PropertyValues) / sizeof(PropertyValues[0]), "property keys/values count mismatch");
+
 #endif
 	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] coreclr_initialize..."));
 	const int32 InitResult = coreclr_initialize(

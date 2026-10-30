@@ -4,11 +4,11 @@
 
 #if UNREALSHARP_MONO
 
+#include "CSMonoRuntime.h"
+
 #if PLATFORM_IOS
 #include <sys/stat.h>
 #endif
-
-#include "CSMonoRuntime.h"
 #include "UnrealSharpCore.h"
 #include "CSPathsUtilities.h"
 #include "CSDotnetUtilties.h"

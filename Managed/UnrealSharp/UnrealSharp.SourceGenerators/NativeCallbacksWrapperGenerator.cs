@@ -17,6 +17,14 @@ public struct ParameterInfo
 [Generator]
 public class NativeCallbacksWrapperGenerator : IIncrementalGenerator
 {
+    private static readonly DiagnosticDescriptor UnsupportedStringShape = new(
+        id: "US0015",
+        title: "String in unsupported native callback position",
+        messageFormat: "'{0}.{1}' declares a string as a return value or a ref/out parameter; the ABI twin cannot express that shape and interpreted calli will reject the marshalled signature. Pass char*/IntPtr with an explicit length instead.",
+        category: "Usage",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var classDeclarations = context.SyntaxProvider.CreateSyntaxProvider(
@@ -40,7 +48,34 @@ public class NativeCallbacksWrapperGenerator : IIncrementalGenerator
     private static void GenerateForClass(SourceProductionContext context, Compilation compilation, ClassInfo classInfo)
     {
         var model = compilation.GetSemanticModel(classInfo.ClassDeclaration.SyntaxTree);
+
+        // Only by-value string parameters are rewritten. A string return or a ref/out
+        // string has no ABI twin here; flag it at build time instead of failing at
+        // runtime on iOS with InvalidProgramException.
+        foreach (DelegateInfo delegateInfo in classInfo.Delegates)
+        {
+            if (IsStringType(delegateInfo.ReturnValue.Type, model))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(UnsupportedStringShape, classInfo.ClassDeclaration.GetLocation(), classInfo.Name, delegateInfo.Name));
+            }
+
+            foreach (DelegateParameterInfo parameter in delegateInfo.Parameters)
+            {
+                if ((parameter.IsOutParameter || parameter.IsRefParameter) && IsStringType(parameter.Type, model))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(UnsupportedStringShape, classInfo.ClassDeclaration.GetLocation(), classInfo.Name, delegateInfo.Name));
+                }
+            }
+        }
+
         var sourceBuilder = new StringBuilder();
+
+        // Managed strings cannot cross a `calli` boundary in interpreted code: CoreCLR's
+        // interpreter rejects calli sites that need P/Invoke marshalling ("PInvoke
+        // marshalling for calli is not supported in interpreted code"), which is what
+        // iOS runs (no JIT). The native side already takes `const char*` UTF-8, so the
+        // wrapper reinterprets the bound function pointer as its `char*` ABI twin and
+        // marshals the arguments by hand. The public API keeps `string`.
 
         HashSet<string> namespaces = [];
         foreach (DelegateInfo delegateInfo in classInfo.Delegates)
@@ -189,22 +224,147 @@ public class NativeCallbacksWrapperGenerator : IIncrementalGenerator
 
             string delegateName = delegateInfo.Name;
 
-            if (delegateInfo.ReturnValue.Type.ToString() != "void")
+            // Managed forms that cannot cross a calli boundary:
+            //   string  -> needs P/Invoke marshalling
+            //   ref/out -> ELEMENT_TYPE_BYREF makes PInvoke::MarshalingRequired return TRUE
+            //              (dllimport.cpp has no BYREF case) and the CoreCLR interpreter
+            //              rejects such calli sites with InvalidProgramException.
+            // Both are replaced by their ABI-equivalent (char* / T*) in the calli twin.
+            List<DelegateParameterInfo> stringParameters = delegateInfo.Parameters
+                .Where(p => IsStringParameter(p, model))
+                .ToList();
+            List<DelegateParameterInfo> byRefParameters = delegateInfo.Parameters
+                .Where(p => p.IsOutParameter || p.IsRefParameter)
+                .ToList();
+            List<DelegateParameterInfo> boolParameters = delegateInfo.Parameters
+                .Where(p => IsBooleanParameter(p, model))
+                .ToList();
+            bool returnsBool = IsBooleanParameter(delegateInfo.ReturnValue, model);
+
+            bool needsAbiTwin = stringParameters.Count > 0
+                || byRefParameters.Count > 0
+                || boolParameters.Count > 0
+                || returnsBool;
+
+            string callTarget = delegateName;
+            if (needsAbiTwin)
             {
-                sourceBuilder.Append($"            return {delegateName}(");
+                callTarget = delegateName + "Abi";
+                string abiSignature = BuildFunctionPointerSignature(delegateInfo, model, useAbiTypes: true);
+                sourceBuilder.AppendLine($"            {abiSignature} {callTarget} = ({abiSignature}){delegateName};");
             }
-            else
+
+            // Strings are encoded into a NUL-terminated UTF-8 buffer. The terminator is
+            // mandatory: native consumers read these as C strings (FName(const ANSICHAR*),
+            // FString via UTF8_TO_TCHAR, UE_LOGFMT) and Encoding.UTF8.GetBytes does not
+            // append one, so without it they would run into adjacent heap memory. Short
+            // strings use the stack, longer ones a pinned heap array.
+            const int StackAllocLimit = 256;
+            foreach (DelegateParameterInfo parameter in stringParameters)
             {
-                sourceBuilder.Append($"            {delegateName}(");
+                sourceBuilder.AppendLine($"            int {parameter.Name}ByteCount = {parameter.Name} != null ? System.Text.Encoding.UTF8.GetByteCount({parameter.Name}) : 0;");
+                sourceBuilder.AppendLine($"            var {parameter.Name}Heap = {parameter.Name}ByteCount > {StackAllocLimit} ? new byte[{parameter.Name}ByteCount + 1] : null;");
             }
+
+            // Out parameters are not readable: route them through a temporary and assign
+            // back after the call. The temporary always exists up front; whether its
+            // address needs pinning depends on the type (see below).
+            foreach (DelegateParameterInfo parameter in byRefParameters)
+            {
+                if (parameter.IsOutParameter)
+                {
+                    string typeName = parameter.Type.GetAnnotatedTypeName(model) ?? parameter.Type.ToString();
+                    sourceBuilder.AppendLine($"            {typeName} {parameter.Name}Tmp = default;");
+                }
+            }
+
+            // Take the address of every ref/out parameter with Unsafe.AsPointer: a plain
+            // `&value` is rejected for ref parameters (CS0213 "already fixed") or requires
+            // `fixed` (CS0212) depending on the type's managed-ness, while AsPointer is
+            // exactly the byref -> pointer conversion we need and compiles for all of them.
+            foreach (DelegateParameterInfo parameter in byRefParameters)
+            {
+                string typeName = parameter.Type.GetAnnotatedTypeName(model) ?? parameter.Type.ToString();
+                string source = parameter.IsOutParameter ? $"{parameter.Name}Tmp" : parameter.Name;
+
+                // Unsafe.AsPointer<T> cannot be instantiated with a pointer type (CS0306),
+                // but a pointer variable is unmanaged, so its address can be taken directly.
+                if (parameter.Type is PointerTypeSyntax)
+                {
+                    sourceBuilder.AppendLine($"            {typeName}* {parameter.Name}Ptr = &{source};");
+                }
+                else
+                {
+                    sourceBuilder.AppendLine($"            {typeName}* {parameter.Name}Ptr = ({typeName}*)System.Runtime.CompilerServices.Unsafe.AsPointer(ref {source});");
+                }
+            }
+
+            for (int i = 0; i < stringParameters.Count; i++)
+            {
+                DelegateParameterInfo parameter = stringParameters[i];
+                string pad = new string(' ', 12 + 4 * i);
+                string inner = new string(' ', 16 + 4 * i);
+
+                sourceBuilder.AppendLine($"{pad}fixed (byte* {parameter.Name}HeapPtr = {parameter.Name}Heap)");
+                sourceBuilder.AppendLine($"{pad}{{");
+                sourceBuilder.AppendLine($"{inner}byte* {parameter.Name}Ptr = {parameter.Name}HeapPtr;");
+                sourceBuilder.AppendLine($"{inner}if ({parameter.Name} != null && {parameter.Name}Heap == null)");
+                sourceBuilder.AppendLine($"{inner}{{");
+                sourceBuilder.AppendLine($"{inner}    byte* {parameter.Name}Stack = stackalloc byte[{parameter.Name}ByteCount + 1];");
+                sourceBuilder.AppendLine($"{inner}    {parameter.Name}Ptr = {parameter.Name}Stack;");
+                sourceBuilder.AppendLine($"{inner}}}");
+                sourceBuilder.AppendLine($"{inner}if ({parameter.Name}ByteCount > 0)");
+                sourceBuilder.AppendLine($"{inner}{{");
+                sourceBuilder.AppendLine($"{inner}    System.Text.Encoding.UTF8.GetBytes(System.MemoryExtensions.AsSpan({parameter.Name}), new System.Span<byte>({parameter.Name}Ptr, {parameter.Name}ByteCount));");
+                sourceBuilder.AppendLine($"{inner}}}");
+                sourceBuilder.AppendLine($"{inner}if ({parameter.Name} != null)");
+                sourceBuilder.AppendLine($"{inner}{{");
+                sourceBuilder.AppendLine($"{inner}    {parameter.Name}Ptr[{parameter.Name}ByteCount] = 0;");
+                sourceBuilder.AppendLine($"{inner}}}");
+            }
+
+            // Each string parameter opened a block above, so the call sits one level
+            // deeper per string.
+            string callIndent = new string(' ', 12 + 4 * stringParameters.Count);
+
+            bool returnsValue = returnsBool || delegateInfo.ReturnValue.Type.ToString() != "void";
+            sourceBuilder.Append($"{callIndent}{(returnsValue ? "return " : string.Empty)}{callTarget}(");
 
             sourceBuilder.Append(string.Join(", ", delegateInfo.Parameters.Select(p =>
             {
-                string prefix = p.IsOutParameter ? "out " : p.IsRefParameter ? "ref " : string.Empty;
-                return prefix + p.Name;
+                if (IsStringParameter(p, model))
+                {
+                    return $"(char*){p.Name}Ptr";
+                }
+
+                if (IsBooleanParameter(p, model))
+                {
+                    return $"(byte)({p.Name} ? 1 : 0)";
+                }
+
+                if (p.IsOutParameter || p.IsRefParameter)
+                {
+                    return $"{p.Name}Ptr";
+                }
+
+                return p.Name;
             })));
 
-            sourceBuilder.AppendLine(");");
+            sourceBuilder.AppendLine(returnsBool ? ") != 0;" : ");");
+
+            for (int i = stringParameters.Count - 1; i >= 0; i--)
+            {
+                sourceBuilder.AppendLine(new string(' ', 12 + 4 * i) + "}");
+            }
+
+            foreach (DelegateParameterInfo parameter in byRefParameters)
+            {
+                if (parameter.IsOutParameter)
+                {
+                    sourceBuilder.AppendLine($"            {parameter.Name} = {parameter.Name}Tmp;");
+                }
+            }
+
             sourceBuilder.AppendLine("        }");
         }
 
@@ -213,6 +373,74 @@ public class NativeCallbacksWrapperGenerator : IIncrementalGenerator
         sourceBuilder.AppendLine("}");
 
         context.AddSource($"{classInfo.Name}.generated.cs", SourceText.From(sourceBuilder.ToString(), Encoding.UTF8));
+    }
+
+    private static bool IsStringParameter(DelegateParameterInfo parameter, SemanticModel semanticModel)
+    {
+        return !parameter.IsOutParameter
+            && !parameter.IsRefParameter
+            && IsStringType(parameter.Type, semanticModel);
+    }
+
+    private static bool IsStringType(TypeSyntax type, SemanticModel semanticModel)
+    {
+        return semanticModel.GetTypeInfo(type).Type?.SpecialType == SpecialType.System_String;
+    }
+
+    /// <summary>
+    /// True for a by-value bool. ELEMENT_TYPE_BOOLEAN counts as "requires marshalling"
+    /// whenever runtime marshalling is enabled, which makes the interpreted calli site
+    /// illegal; the ABI twin uses byte instead (the native side passes a 1-byte bool).
+    /// </summary>
+    private static bool IsBooleanParameter(DelegateParameterInfo parameter, SemanticModel semanticModel)
+    {
+        return !parameter.IsOutParameter
+            && !parameter.IsRefParameter
+            && semanticModel.GetTypeInfo(parameter.Type).Type?.SpecialType == SpecialType.System_Boolean;
+    }
+
+    /// <summary>
+    /// Function pointer signature for a bound callback. With <paramref name="useAbiTypes"/>
+    /// the signature is the ABI twin the wrapper calls through: managed `string` becomes
+    /// `char*` and `ref`/`out T` becomes `T*` (all ABI-equivalent, but free of the
+    /// marshalling flag that makes interpreted calli illegal).
+    /// </summary>
+    private static string BuildFunctionPointerSignature(DelegateInfo delegateInfo, SemanticModel model, bool useAbiTypes)
+    {
+        var parameterTypes = delegateInfo.Parameters.Select(parameter =>
+        {
+            string typeName = parameter.Type.GetAnnotatedTypeName(model) ?? parameter.Type.ToString();
+
+            if (useAbiTypes)
+            {
+                if (IsStringParameter(parameter, model))
+                {
+                    return "char*";
+                }
+
+                if (IsBooleanParameter(parameter, model))
+                {
+                    return "byte";
+                }
+
+                if (parameter.IsOutParameter || parameter.IsRefParameter)
+                {
+                    return typeName + "*";
+                }
+            }
+
+            string prefix = parameter.IsOutParameter ? "out " : parameter.IsRefParameter ? "ref " : string.Empty;
+            return prefix + typeName;
+        }).ToList();
+
+        string returnType = delegateInfo.ReturnValue.Type.GetAnnotatedTypeName(model) ?? delegateInfo.ReturnValue.Type.ToString();
+        if (useAbiTypes && IsBooleanParameter(delegateInfo.ReturnValue, model))
+        {
+            returnType = "byte";
+        }
+
+        string parameters = parameterTypes.Count > 0 ? string.Join(", ", parameterTypes) + ", " : string.Empty;
+        return $"delegate* unmanaged<{parameters}{returnType}>";
     }
 
     private static ClassInfo? GetClassInfoOrNull(GeneratorSyntaxContext context)
