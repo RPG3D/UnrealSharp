@@ -48,11 +48,12 @@ bool FCSDotNetRuntimeHost::InitializeMonoHost()
 		return false;
 	}
 #else
-	// Editor builds: the BCL lives next to the plugin in the SDK submodule. Mirror its
-	// <Platform>/<arch> resolution order and fall back to the legacy flat layout.
+	// Editor builds: the BCL lives in the unified SDK submodule (DotNetRuntimeSDK),
+	// under the mono backend layer. Mirror its <Platform>/<arch> resolution order and
+	// fall back to the legacy flat layout.
 	const FString PluginDir = FPaths::ConvertRelativePathToFull(UnrealSharp::Paths::GetPluginDirectory());
 	const FString SdkRootDir = FPaths::Combine(
-		PluginDir, TEXT("Source"), TEXT("ThirdParty"), TEXT("MonoSDK"));
+		PluginDir, TEXT("Source"), TEXT("ThirdParty"), TEXT("DotNetRuntimeSDK"), TEXT("Mono"));
 	const FString ArchRuntimeDir = FPaths::Combine(
 		SdkRootDir, UnrealSharp::DotNetUtilities::GetMonoSdkPlatformDir(), TEXT("runtime"));
 	const FString FlatRuntimeDir = FPaths::Combine(
@@ -68,7 +69,7 @@ bool FCSDotNetRuntimeHost::InitializeMonoHost()
 	{
 		UE_LOG(LogUnrealSharp, Fatal,
 			TEXT("[Mono] BCL runtime directory not found. Tried '%s' (arch layout) and '%s' (legacy flat). ")
-			TEXT("Populate Source/ThirdParty/MonoSDK from the MonoSDK release zip."),
+			TEXT("Populate Source/ThirdParty/DotNetRuntimeSDK/Mono (CI artifact or FetchRuntimeSDK.sh)."),
 			*ArchRuntimeDir, *FlatRuntimeDir);
 		return false;
 	}
