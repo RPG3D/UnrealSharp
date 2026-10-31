@@ -17,10 +17,11 @@ public class UnrealSharpUtilities : ModuleRules
                 "Core",
                 "Json",
                 "Projects",
-                // External ThirdParty module (Source/ThirdParty/MonoSDK/): defines UNREALSHARP_MONO=1/0
-                // (read from DefaultEngine.ini bUseMono) and links the Mono runtime. Public dependency
-                // so the define propagates through UnrealSharpCore -> UnrealSharpEditor.
-                "MonoSDK",
+                // External ThirdParty module (Source/ThirdParty/DotNetRuntimeSDK/): defines
+                // UNREALSHARP_MONO=1/0 (read from the layered DotNetRuntime ini keys) and
+                // links the selected runtime (Mono or CoreCLR). Public dependency so the
+                // define propagates through UnrealSharpCore -> UnrealSharpEditor.
+                "DotNetRuntimeSDK",
             }
         );
 
