@@ -28,7 +28,9 @@ class UCSUnrealSharpSettings;
 
 /** Managed-side mirror of UnrealSharp.Plugins.Main.FCSInitializationResult.
  *  Managed layout ([StructLayout(Sequential)], NativeBool : byte): Success @0 (1 byte), Message @1 (UTF-8, NUL-terminated).
- *  The CoreCLR FCSInitializationResult in CSDotNetRuntimeHost.h has a different layout and must not be used here.
+ *  Upstream 89847944 later aligned the CoreCLR FCSInitializationResult (CSDotNetRuntimeHost.h) to the
+ *  same 1+4096 layout; both structs are now layout-identical, but keep this Mono-side mirror separate —
+ *  each backend carries its own static_assert so a drift on either path fails its own build.
  *  KEEP IN SYNC with Main.cs — the static_assert below catches size drift, but a field type
  *  change on the managed side (e.g. NativeBool widened to int) would only misalign offsets
  *  silently, so update both together. */
