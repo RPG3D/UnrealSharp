@@ -65,7 +65,7 @@ public class PackageProjectMono : BuildCommand
 
     private void StartPackaging(MonoPackagingOptions options)
     {
-        SdkLayout Sdk = ValidateOptions(options);
+        SdkLayout? Sdk = ValidateOptions(options);
         LogOptions(options);
 
         DotNetSdkUtilities.CopyGlobalJson(this);
@@ -85,13 +85,16 @@ public class PackageProjectMono : BuildCommand
         BuildUserBindings(PublishFolder, options, Arguments);
         BuildUserSolution(PublishFolder, Arguments, options.BuildConfiguration, options.UserParams);
 
-        DeduplicateBclDlls(Sdk, PublishFolder);
+        if (Sdk != null)
+        {
+            DeduplicateBclDlls(Sdk, PublishFolder);
+        }
         StripEditorOnlyDlls(PublishFolder);
         EmitInstalledFlagFile(PublishFolder);
 
         // Opt-in only: the map contains absolute paths from this build machine and is
         // only useful for a local debug session. Never ship it in Shipping builds.
-        if (options.DebugSymbols && options.BuildConfiguration != UnrealTargetConfiguration.Shipping)
+        if (Sdk != null && options.DebugSymbols && options.BuildConfiguration != UnrealTargetConfiguration.Shipping)
         {
             EmitDebugSymbolMap(PublishFolder, Sdk);
         }
@@ -156,7 +159,12 @@ public class PackageProjectMono : BuildCommand
     /// reflects what PackageProjectMono just published.</summary>
     private void InvalidatedStagingRules()
     {
-        string BuildCs = Path.Combine(GetMonoSdkRootFolder(), "MonoSDK.Build.cs");
+        string BuildCs = Path.Combine(GetMonoSdkRootFolder(), "..", "DotNetRuntimeSDK.Build.cs");
+        if (File.Exists(BuildCs))
+        {
+            File.SetLastWriteTimeUtc(BuildCs, DateTime.UtcNow);
+        }
+        BuildCs = Path.Combine(GetMonoSdkRootFolder(), "MonoSDK.Build.cs");
         if (File.Exists(BuildCs))
         {
             File.SetLastWriteTimeUtc(BuildCs, DateTime.UtcNow);
@@ -190,7 +198,51 @@ public class PackageProjectMono : BuildCommand
             LoggerUtilities.LogUnrealSharpInfo($"User Params: {string.Join(' ', options.UserParams)}");
     }
 
-    private SdkLayout ValidateOptions(MonoPackagingOptions options)
+    /// <summary>Whether the PACKAGED target for this platform resolves to the CoreCLR
+    /// backend (DotNetRuntimeSDK.Build.cs's UnrealSharpRuntimeSelection chain: platform
+    /// default < [UnrealSharp] DotNetRuntime in the platform ini layer). When true the
+    /// Mono SDK payload is not required: the BCL staged into the PAK comes from the
+    /// CoreCLR payload, and PackageProjectMono only publishes the backend-agnostic
+    /// managed DLLs to Content/Managed/&lt;Platform&gt;.</summary>
+    private bool IsCoreClrPackagedTarget(UnrealTargetPlatform platform)
+    {
+        string? ReadValue(string IniPath)
+        {
+            if (!File.Exists(IniPath))
+                return null;
+            bool InUnrealSharpSection = false;
+            foreach (string RawLine in File.ReadAllLines(IniPath))
+            {
+                string Line = RawLine.Trim();
+                if (Line.StartsWith('['))
+                {
+                    InUnrealSharpSection = Line.Equals("[UnrealSharp]", StringComparison.OrdinalIgnoreCase);
+                    continue;
+                }
+                if (!InUnrealSharpSection)
+                    continue;
+                int Eq = Line.IndexOf('=');
+                if (Eq <= 0)
+                    continue;
+                if (!Line.Substring(0, Eq).Trim().Equals("DotNetRuntime", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                return Line.Substring(Eq + 1).Trim();
+            }
+            return null;
+        }
+
+        // Platform layer (Config/<Platform>/<Platform>Engine.ini) wins over the base layer.
+        string? PlatformValue = ReadValue(Path.Combine(
+            this.GetProjectRootFolder(), "Config", platform.ToString(), $"{platform}Engine.ini"));
+        if (PlatformValue != null)
+            return PlatformValue.Equals("CoreCLR", StringComparison.OrdinalIgnoreCase);
+
+        string? BaseValue = ReadValue(Path.Combine(
+            this.GetProjectRootFolder(), "Config", "DefaultEngine.ini"));
+        return BaseValue != null && BaseValue.Equals("CoreCLR", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private SdkLayout? ValidateOptions(MonoPackagingOptions options)
     {
         if (options.TargetPlatform != UnrealTargetPlatform.Mac &&
             options.TargetPlatform != UnrealTargetPlatform.Android &&
@@ -208,6 +260,14 @@ public class PackageProjectMono : BuildCommand
         // Android requires the arch layout: MonoSDK_APL.xml copies the runtime .so files from
         // Android/arm64/ verbatim, so a legacy flat Android/ SDK would build fine and then
         // ship an APK with no native Mono runtime at all.
+        if (IsCoreClrPackagedTarget(options.TargetPlatform))
+        {
+            LoggerUtilities.LogUnrealSharpInfo(
+                $"[Mono] {options.TargetPlatform} packaged target resolves to CoreCLR - skipping MonoSDK validation "
+                + "(BCL is staged from the DotNetRuntimeSDK CoreCLR payload at cook time).");
+            return null;
+        }
+
         bool bRequireArchLayout = options.TargetPlatform == UnrealTargetPlatform.Android;
         SdkLayout Sdk = ResolveSdkLayout(options.TargetPlatform, options.TargetArch, bRequireArchLayout);
 
@@ -222,7 +282,18 @@ public class PackageProjectMono : BuildCommand
     }
 
     private string GetMonoSdkRootFolder()
-        => Path.Combine(this.GetUnrealSharpRootFolder(), "Source", "ThirdParty", "MonoSDK");
+    {
+        // Unified SDK repo (DotNetRuntimeSDK submodule): Mono payloads live under
+        // Mono/<Platform>/<arch> with the same layout the legacy ThirdParty/MonoSDK
+        // had. Prefer it; fall back to the legacy dir for older checkouts.
+        string Unified = Path.Combine(
+            this.GetUnrealSharpRootFolder(), "Source", "ThirdParty", "DotNetRuntimeSDK", "Mono");
+        if (Directory.Exists(Unified))
+        {
+            return Unified;
+        }
+        return Path.Combine(this.GetUnrealSharpRootFolder(), "Source", "ThirdParty", "MonoSDK");
+    }
 
     /// <summary>Architecture directory name for the target platform. Single-arch platforms are
     /// fixed by the target; macOS ships both Mac/x64 and Mac/arm64, so without -TargetArch the

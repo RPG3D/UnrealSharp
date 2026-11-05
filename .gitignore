@@ -88,3 +88,6 @@ obj/
 
 .claude/
 .DS_Store
+
+# local backups
+*.bak.*
