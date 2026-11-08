@@ -34,6 +34,7 @@ namespace UnrealSharp::DotNetUtilities
 
 #if WITH_EDITOR
 	UNREALSHARPUTILITIES_API bool VerifyCSharpEnvironment();
+	UNREALSHARPUTILITIES_API bool IsManagedBuildDisabled();
 	UNREALSHARPUTILITIES_API bool BuildUserSolution();
 #endif
 

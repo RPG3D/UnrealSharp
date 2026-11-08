@@ -741,6 +741,12 @@ void FUnrealSharpEditorModule::UnregisterPluginTemplates()
 
 void FUnrealSharpEditorModule::LoadNewProject(const FString& ModuleName, const FString& ModulePath) const
 {
+	if (UnrealSharp::DotNetUtilities::IsManagedBuildDisabled())
+	{
+		UE_LOG(LogUnrealSharpEditor, Warning, TEXT("Cannot build and load the new C# project while -UnrealSharpSkipManagedBuild is active."));
+		return;
+	}
+
 	UnrealSharp::Build::BuildUserSolution();
 	UCSManager::Get().LoadUserAssemblyByName(*ModuleName, true);
 	UCSHotReloadSubsystem::Get()->PauseHotReload(TEXT("Loading new C# project"));

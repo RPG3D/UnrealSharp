@@ -18,43 +18,13 @@ bool UnrealSharp::Build::InvokeUnrealSharpAutomation(const FString& BuildAction,
 {
 	FString Arguments;
 	BuildArguments(BuildAction, ActionArgs, Arguments);
-
-	// UAT enforces a single-instance mutex (ProcessSingleton). Another AutomationTool
-	// holding the lock (e.g. Turnkey VerifySdk auto-triggered by UBT during editor
-	// launch, a packaging run, ...) makes our invocation exit immediately with
-	// "A conflicting instance of AutomationTool is already running". Instead of
-	// failing outright, wait for the lock to be released and retry a few times.
-	constexpr int32 MaxRetries = 3;
-	constexpr float RetryDelaySeconds = 3.0f;
+	// Turnkey may already be verifying SDKs when the editor requests a managed build.
+	// Queue behind the running UAT before reporting any actual build failure.
+	Arguments += TEXT(" -WaitForUATMutex");
 
 	int32 ReturnCode = 0;
 	FString Output;
-	for (int32 Attempt = 1; Attempt <= MaxRetries; ++Attempt)
-	{
-		ReturnCode = 0;
-		Output.Reset();
-
-		// On retry attempts, suppress OnError (an OkCancel dialog that would let the
-		// user quit the editor) — a transient mutex conflict is expected here.
-		const FCSCommandError& ErrorCallback = (Attempt > 1) ? FCSCommandError() : OnError;
-		const bool bSuccess = Process::InvokeCommand(FSerializedUATProcess::GetUATPath(), Arguments, ReturnCode, Output, nullptr, ErrorCallback);
-		if (bSuccess)
-		{
-			return true;
-		}
-
-		// Only retry on the UAT single-instance mutex conflict; any other failure is final.
-		const bool bIsMutexConflict = Output.Contains(TEXT("conflicting instance"), ESearchCase::IgnoreCase);
-		if (!bIsMutexConflict || Attempt >= MaxRetries)
-		{
-			return false;
-		}
-
-		UE_LOG(LogUnrealSharpUtilities, Warning, TEXT("[UAT] Conflicting AutomationTool instance detected (attempt %d/%d). Waiting %.0fs before retry..."), Attempt, MaxRetries, RetryDelaySeconds);
-		FPlatformProcess::Sleep(RetryDelaySeconds);
-	}
-
-	return false;
+	return Process::InvokeCommand(FSerializedUATProcess::GetUATPath(), Arguments, ReturnCode, Output, nullptr, OnError);
 }
 
 void UnrealSharp::Build::InvokeUnrealSharpAutomation_Async(const FString& BuildAction, const FText& BuildActionDisplayName, const TMap<FString, FString>* ActionArgs, const IUATHelperModule::UatTaskResultCallack& ResultCallback)

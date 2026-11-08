@@ -7,7 +7,9 @@
 #include "CSProjectUtilities.h"
 #include "UnrealSharpUtils.h"
 #include "HAL/FileManager.h"
+#include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Parse.h"
 
 static TAutoConsoleVariable<int32> CVarSimulateNoDotNetSDK(
 	TEXT("UnrealSharp.SimulateNoDotNetSDK"),
@@ -241,8 +243,19 @@ bool UnrealSharp::DotNetUtilities::VerifyCSharpEnvironment()
 	return true;
 }
 
+bool UnrealSharp::DotNetUtilities::IsManagedBuildDisabled()
+{
+	return FParse::Param(FCommandLine::Get(), TEXT("UnrealSharpSkipManagedBuild"));
+}
+
 bool UnrealSharp::DotNetUtilities::BuildUserSolution()
 {
+	if (IsManagedBuildDisabled())
+	{
+		UE_LOG(LogUnrealSharpUtilities, Display, TEXT("Skipping managed build (-UnrealSharpSkipManagedBuild). Loading existing assemblies."));
+		return true;
+	}
+
 	TArray<FString> ProjectPaths;
 	Project::GetAllProjectPaths(ProjectPaths);
 

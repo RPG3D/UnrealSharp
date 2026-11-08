@@ -11,9 +11,7 @@
 #include "Types/CSScriptStruct.h"
 #include "CSPathsUtilities.h"
 #include "CSProjectUtilities.h"
-#if UNREALSHARP_MONO
 #include "CSDotnetUtilties.h"
-#endif
 #include "HotReload/CSHotReloadUtilities.h"
 #include "Kismet2/StructureEditorUtils.h"
 #include "Utilities/CSAssemblyUtilities.h"
@@ -99,6 +97,11 @@ bool UCSHotReloadSubsystem::HasPendingHotReloadChanges() const
 void UCSHotReloadSubsystem::PerformHotReload()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(UCSHotReloadSubsystem::PerformHotReload)
+
+	if (UnrealSharp::DotNetUtilities::IsManagedBuildDisabled())
+	{
+		return;
+	}
 	
 	if (FPlayWorldCommandCallbacks::IsInPIE() || FPlayWorldCommandCallbacks::IsInSIE())
 	{

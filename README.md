@@ -12,6 +12,10 @@ UnrealSharp is a free, open-source plugin for writing Unreal Engine 5 games in C
 - **Full .NET ecosystem**: Pull in any NuGet package you need.
 - **MIT licensed**
 
+## Running multiple editors
+
+Build the managed solution once, then launch test instances with `-UnrealSharpSkipManagedBuild`. These instances load existing assemblies and skip the startup managed build and C# hot reload. Without the option, the normal startup build waits for any active AutomationTool command, such as Turnkey's SDK check.
+
 ## Runtime stats
 
 In a build with UE stats enabled, use `stat UnrealSharp` to display the estimated managed heap, managed allocation rate, GC collection counts, and UnrealSharp's tracked UObject handles. The object counters count entries in UnrealSharp's wrapper maps. Ordinary managed objects do not contribute to these counters.
