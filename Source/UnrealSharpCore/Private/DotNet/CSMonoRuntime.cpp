@@ -449,13 +449,15 @@ MonoDomain* InitializeMonoRuntime(const FString& RuntimeDir, const FString& Extr
 	mono_trace_set_log_handler(OnMonoLog, nullptr);
 	mono_trace_set_print_handler(OnMonoPrint);
 	mono_trace_set_printerr_handler(OnMonoPrint);
-	// "debug" surfaces Mono's internal GC/threadpool trace for diagnostics;
-	// Test/Shipping builds drop to "warning" to avoid log spam.
-#if UE_BUILD_SHIPPING || UE_BUILD_TEST
-	mono_trace_set_level_string("warning");
-#else
-	mono_trace_set_level_string("debug");
+	const char* TraceLevel = "warning";
+#if !UE_BUILD_SHIPPING && !UE_BUILD_TEST
+	// Opt in to Mono's internal GC, assembly-loader and threadpool trace.
+	if (FParse::Param(FCommandLine::Get(), TEXT("MonoTraceDebug")))
+	{
+		TraceLevel = "debug";
+	}
 #endif
+	mono_trace_set_level_string(TraceLevel);
 
 #if PLATFORM_ANDROID
 	// Step 0.5: Redirect stderr to a file so Mono's crash handler output

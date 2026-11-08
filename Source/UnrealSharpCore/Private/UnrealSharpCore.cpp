@@ -1,6 +1,7 @@
 ﻿#include "UnrealSharpCore.h"
 #include "CoreMinimal.h"
 #include "CSManager.h"
+#include "CSRuntimeStats.h"
 #include "CSDotnetUtilties.h"
 #include "Properties/CSPropertyGeneratorManager.h"
 #include "Modules/ModuleManager.h"
@@ -46,10 +47,12 @@ void FUnrealSharpCoreModule::StartupModule()
 	}
 
 	UCSManager::Get().Initialize();
+	UnrealSharp::RuntimeStats::Start();
 }
 
 void FUnrealSharpCoreModule::ShutdownModule()
 {
+	UnrealSharp::RuntimeStats::Stop();
 	FCSPropertyGeneratorManager::Shutdown();
 }
 

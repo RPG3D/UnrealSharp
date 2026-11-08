@@ -43,6 +43,7 @@ internal static class Main
             PluginsCallbacks.Initialize(pluginCallbacks);
             ManagedCallbacks.Initialize(managedCallbacks);
             NativeBinds.Initialize(bindsCallbacks);
+            ManagedRuntimeStats.Register();
             result->Success = NativeBool.True;
         }
         catch (Exception exception)

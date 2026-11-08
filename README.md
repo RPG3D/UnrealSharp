@@ -12,6 +12,18 @@ UnrealSharp is a free, open-source plugin for writing Unreal Engine 5 games in C
 - **Full .NET ecosystem**: Pull in any NuGet package you need.
 - **MIT licensed**
 
+## Runtime stats
+
+In a build with UE stats enabled, use `stat UnrealSharp` to display the estimated managed heap, managed allocation rate, GC collection counts, and UnrealSharp's tracked UObject handles. The object counters count entries in UnrealSharp's wrapper maps. Ordinary managed objects do not contribute to these counters.
+
+The group also displays process physical and virtual memory and available system virtual memory. On Windows, the process virtual counter reports private commit. A flat managed heap alongside growing process commit is a starting point for investigating native or interop allocations. The sampler runs once a second while UE collects stats and does not force a collection.
+
+Use `UnrealSharp.DumpStats` in non-shipping builds to write a snapshot in bytes to the UE log. Managed byte counters reported as `-1` in this snapshot are unavailable on the current runtime.
+
+Mono runtime tracing defaults to `warning`. Add `-MonoTraceDebug` to the UE command line in a Development or Debug build to collect detailed runtime traces. The Mono debugger agent has separate settings.
+
+On Windows Mono non-shipping builds, `UnrealSharp.DumpManagedHeap` triggers a full collection and walks the live managed heap. It writes a CSV under `Saved/UnrealSharp` with per-class instance counts and shallow object bytes, including ordinary C# objects. `stat UnrealSharp` shows the totals from the last capture. The console log includes the collection and walk duration and the count of objects outside the bounded type table. Take snapshots at comparable game states to identify types whose live counts grow. Compare `runtimeClass` within the same process to distinguish classes with identical display names, such as generic instantiations. The CSV does not include reference chains.
+
 ## Games made with UnrealSharp
 
 - [Ballistic Brews (Steam Page)](https://store.steampowered.com/app/4095000/Ballistic_Brews/)
