@@ -31,7 +31,7 @@ namespace UnrealSharp.Automation.BuildCommands;
 //     the clean Game-version DLLs and don't pull MSBuildLocator transitively.
 //   - iOS: simulator and device share Content/Managed/IOS — project IL is architecture-independent;
 //     BCL + native libs are arch-specific and staged from CoreClrSDK/{IOS|IOSSimulator} by
-//     CoreClrSDK.Build.cs. StripEditorOnlyDlls() removes any editor-only DLLs that still leak.
+//     CoreClrSDK.Build.cs.
 [Help("Packages the UnrealSharp managed code for a MobileClr (Android/iOS) build. Reverse flow: publish managed to Content/Managed/<Platform> BEFORE UAT.")]
 [Help("UEBuildConfig=<Config>", "REQUIRED. The build configuration (Debug, Development, Shipping, Test).")]
 [Help("TargetPlatform=<Platform>", "Optional. Target platform (Android, iOS). Defaults to Android.")]
@@ -80,8 +80,6 @@ public class PackageProjectMobile : BuildCommand
         BuildBindingsSolution(Arguments, options.BuildConfiguration);
         BuildUserBindings(PublishFolder, options, Arguments);
         BuildUserSolution(PublishFolder, Arguments, options.BuildConfiguration, options.UserParams);
-        StripEditorOnlyDlls(PublishFolder);
-
         EmitInstalledFlagFile(PublishFolder);
 
         LoggerUtilities.LogUnrealSharpInfo($"MobileClr packaging complete. Published files: {PublishFolder}");
@@ -275,24 +273,5 @@ public class PackageProjectMobile : BuildCommand
     {
         string InstalledFlagFilePath = Path.Combine(publishFolder, BuildUtilities.UnrealSharpBuildFlagFileName);
         File.WriteAllText(InstalledFlagFilePath, string.Empty);
-    }
-
-    private static void StripEditorOnlyDlls(string publishFolder)
-    {
-        string[] stripPatterns = { "Microsoft.Build.Locator.dll", "Microsoft.Build*.dll", "Microsoft.CodeAnalysis*.dll", "Newtonsoft.Json.dll" };
-        int removed = 0;
-        foreach (string stripPattern in stripPatterns)
-        {
-            foreach (string dll in Directory.GetFiles(publishFolder, stripPattern, SearchOption.AllDirectories))
-            {
-                File.Delete(dll);
-                removed++;
-            }
-        }
-
-        if (removed > 0)
-        {
-            LoggerUtilities.LogUnrealSharpInfo($"Stripped {removed} editor-only assemblies.");
-        }
     }
 }

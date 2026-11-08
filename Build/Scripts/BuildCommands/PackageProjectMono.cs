@@ -10,8 +10,6 @@
 // Differences from PackageProject (CoreCLR):
 //   - No ArchiveDirectory: publishes before UAT instead of into an archived build.
 //   - BCL-duplicate DLLs are removed from the publish output (the BCL is staged separately).
-//   - Editor-only NuGet leakage (Microsoft.Build*/Microsoft.CodeAnalysis*/Newtonsoft.Json)
-//     is stripped recursively.
 //   - Validates the MonoSDK native library exists for the target platform up front.
 
 using System;
@@ -85,11 +83,11 @@ public class PackageProjectMono : BuildCommand
         BuildUserBindings(PublishFolder, options, Arguments);
         BuildUserSolution(PublishFolder, Arguments, options.BuildConfiguration, options.UserParams);
 
+        // Keep published dependencies. The Mono SDK supplies a second copy of the BCL.
         if (Sdk != null)
         {
             DeduplicateBclDlls(Sdk, PublishFolder);
         }
-        StripEditorOnlyDlls(PublishFolder);
         EmitInstalledFlagFile(PublishFolder);
 
         // Opt-in only: the map contains absolute paths from this build machine and is
@@ -501,26 +499,5 @@ public class PackageProjectMono : BuildCommand
         }
         if (removed > 0)
             LoggerUtilities.LogUnrealSharpInfo($"[Mono] Dedup: removed {removed} DLLs from publish output (BCL in {BclDir})");
-    }
-
-    /// <summary>Remove editor-only NuGet packages that leak into the publish output through
-    /// flat Binaries HintPath references. MSBuildLocator is skipped at runtime on Mono
-    /// (try/catch in Main.TryRegisterMSBuild) but the NuGet reference still resolves the
-    /// DLLs transitively, so the publish strips them.
-    /// REVIEW-fix: recursive search + Newtonsoft.Json (MSBuildLocator transitive dependency).</summary>
-    private static void StripEditorOnlyDlls(string publishFolder)
-    {
-        string[] stripPatterns = { "Microsoft.Build*.dll", "Microsoft.CodeAnalysis*.dll", "Newtonsoft.Json.dll" };
-        int removed = 0;
-        foreach (string pattern in stripPatterns)
-        {
-            foreach (string file in Directory.GetFiles(publishFolder, pattern, SearchOption.AllDirectories))
-            {
-                File.Delete(file);
-                removed++;
-            }
-        }
-        if (removed > 0)
-            LoggerUtilities.LogUnrealSharpInfo($"[Mono] Stripped {removed} editor-only DLLs from publish output.");
     }
 }
