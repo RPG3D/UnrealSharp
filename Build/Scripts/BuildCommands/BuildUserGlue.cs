@@ -103,7 +103,7 @@ public class BuildUserGlue : BuildCommand
             return false;
         }
 
-        return glueProjectPaths.ToList().SequenceEqual(glueProjectPaths);
+        return glueProjectPaths.SequenceEqual(GlueProjectsArray.Select(project => project?.GetValue<string>()));
     }
 
     private static void CreateSolutionStamp(string solutionPath, List<string> glueProjectPaths)
