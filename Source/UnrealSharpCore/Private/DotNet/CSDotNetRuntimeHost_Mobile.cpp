@@ -41,6 +41,7 @@
 #include "HAL/PlatformFileManager.h"
 #include "GenericPlatform/GenericPlatformFile.h"
 #include "Hash/xxhash.h"
+#include "Logging/StructuredLog.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/ConfigCacheIni.h"   // GConfig (ini trigger)
@@ -323,35 +324,13 @@ bool FCSDotNetRuntimeHost::InitializeManagedRuntimeMobile()
 		return false;
 	}
 	
-	// TRUSTED_PLATFORM_ASSEMBLIES needs real OS paths, but UE keeps them project-relative
-	// ("../../../<Project>/Saved/...") for its own file layer and iOS does not absolutize
-	// them (Android's ConvertToAbsolutePathForExternalAppForRead does). Ask the OS for the
-	// sandbox Documents dir and rebuild the tail from there:
-	//   <Documents>/<Project>/Saved/Managed/<Platform>
-	FString CoreClrRuntimeDir = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*RuntimeDir);
+	// The TPA needs physical paths. On iOS, the write layer chooses the sandbox
+	// root (Documents or Library) used when the assemblies were extracted.
 #if PLATFORM_IOS
-	{
-		NSString* Documents = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-		const FString ProjectName(FApp::GetProjectName());
-		const FString SandboxProjectRoot = FPaths::Combine(FString(Documents), ProjectName);
-
-		FString Suffix = RuntimeDir;
-		while (Suffix.StartsWith(TEXT("../")))
-		{
-			Suffix.RightChopInline(3, EAllowShrinking::No);
-		}
-		if (Suffix.StartsWith(ProjectName) && Suffix.Len() > ProjectName.Len())
-		{
-			Suffix.RightChopInline(ProjectName.Len() + 1, EAllowShrinking::No);
-		}
-		if (Suffix.IsEmpty())
-		{
-			Suffix = FString::Printf(TEXT("Saved/Managed/%s"), *PlatformName);
-		}
-		CoreClrRuntimeDir = FPaths::Combine(SandboxProjectRoot, Suffix);
-		UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] Runtime dir: raw='%s' absolute='%s'"),
-			*RuntimeDir, *CoreClrRuntimeDir);
-	}
+	const FString CoreClrRuntimeDir = IPlatformFile::GetPlatformPhysical().ConvertToAbsolutePathForExternalAppForWrite(*RuntimeDir);
+	UE_LOG(LogUnrealSharp, Log, TEXT("[CoreClr] Runtime dir: raw='%s' absolute='%s'"), *RuntimeDir, *CoreClrRuntimeDir);
+#else
+	const FString CoreClrRuntimeDir = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*RuntimeDir);
 #endif
 
 	// 2. libcoreclr.so is compile-time linked (CoreClrSDK.Build.cs) and staged into
