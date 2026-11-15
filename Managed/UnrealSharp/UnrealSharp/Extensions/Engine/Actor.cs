@@ -1,4 +1,4 @@
-using UnrealSharp.CoreUObject;
+﻿using UnrealSharp.CoreUObject;
 using UnrealSharp.EnhancedInput;
 using UnrealSharp.UnrealSharpCore;
 
@@ -122,38 +122,8 @@ public partial class AActor
     public T AddComponentByClass<T>(TSubclassOf<T> @class, bool bManualAttachment, FTransform relativeTransform) where T : UActorComponent
         => (AddComponentByClass(@class.Cast<UActorComponent>(), bManualAttachment, relativeTransform, deferredFinish: false) as T)!;
 
-    /// <summary>
-    /// Register a SubObject that will get replicated along with the actor component.
-    /// The subobject needs to be manually removed from the list before it gets deleted.
-    /// </summary>
-    /// <param name="subObject">The subobject to replicate. Use UCSReplicatedObject if you don't have a native alternative.</param>
-    /// <param name="netCondition">The condition under which the subobject should be replicated.</param>
-    public void AddReplicatedSubObject(UObject subObject, CoreUObject.ELifetimeCondition netCondition = CoreUObject.ELifetimeCondition.COND_None)
-    {
-        UCSActorExtensions.AddReplicatedSubObject(this, subObject, netCondition);
-    }
     
-    /// <summary>
-    /// Unregister a SubObject to stop replicating it's properties to clients.
-    /// This does not remove or delete it from connections where it was already replicated.
-    /// By default, a replicated subobject gets deleted on clients when the original pointer on the authority becomes invalid.
-    /// If you want to immediately remove it from client use the DestroyReplicatedSubObjectOnRemotePeers or TearOffReplicatedSubObject functions instead of this one.
-    /// </summary>
-    /// <param name="subObject"></param>
-    public void RemoveReplicatedSubObject(UObject subObject)
-    {
-        UCSActorExtensions.RemoveReplicatedSubObject(this, subObject);
-    }
     
-    /// <summary>
-    /// Tells if the object has been registered as a replicated subobject of this actor
-    /// </summary>
-    /// <param name="subObject">The subobject to check.</param>
-    /// <returns>True if the subobject is registered for replication.</returns>
-    public bool IsReplicatedSubObjectRegistered(UObject subObject)
-    {
-        return UCSActorExtensions.IsReplicatedSubObjectRegistered(this, subObject);
-    }
 
     /// <summary>
     /// Move the Actor to the specified location.

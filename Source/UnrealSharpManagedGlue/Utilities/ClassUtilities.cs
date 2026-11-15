@@ -48,9 +48,52 @@ public static class ClassUtilities
         return null;
     }
 
+    /// <summary>
+    /// Companion class of a UInterface/native interface.
+    /// UE 5.8 exposed <c>UhtObject.AlternateObject</c>; UE 5.9 split it into
+    /// <c>UhtClass.InterfaceClass</c> (native IInterface -> UInterface) and
+    /// <c>UhtClass.NativeInterfaceClass</c> (UInterface -> native IInterface).
+    /// Resolved reflectively so the plugin builds against both engine versions.
+    /// </summary>
+    public static UhtClass? GetAlternateClass(this UhtClass classObj)
+    {
+        const System.Reflection.BindingFlags Flags =
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance;
+
+        var legacy = typeof(UhtClass).GetProperty("AlternateObject", Flags);
+        if (legacy != null)
+        {
+            return legacy.GetValue(classObj) as UhtClass;
+        }
+
+        foreach (string propertyName in new[] { "NativeInterfaceClass", "InterfaceClass" })
+        {
+            var property = typeof(UhtClass).GetProperty(propertyName, Flags);
+            if (property == null)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (property.GetValue(classObj) is UhtClass alternate)
+                {
+                    return alternate;
+                }
+            }
+            catch (System.Exception)
+            {
+                // 5.9 getters throw when the class is not the expected interface kind.
+            }
+        }
+
+        return null;
+    }
+
     public static UhtClass GetInterfaceAlternateClass(this UhtClass thisInterface)
     {
-        return (UhtClass)thisInterface.AlternateObject!;
+        return thisInterface.GetAlternateClass()
+               ?? throw new InvalidOperationException($"{thisInterface.SourceName} has no companion interface class");
     }
 
     public static bool HasAnyFlags(this UhtClass classObj, EClassFlags flags)

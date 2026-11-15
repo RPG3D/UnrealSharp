@@ -25,7 +25,8 @@ DECLARE_UNREALSHARP_BINDER(Bind_UCoreUObject)
 
 		if (!IsValid(Field))
 		{
-			UE_LOGFMT(LogUnrealSharp, Warning, "Failed to find type: {0}.{1} in assembly {2}", InNamespace, InTypeName, InAssemblyName);
+			UE_LOG(LogUnrealSharp, Warning, TEXT("Failed to find type: %s.%s in assembly %s"),
+				UTF8_TO_TCHAR(InNamespace), UTF8_TO_TCHAR(InTypeName), UTF8_TO_TCHAR(InAssemblyName));
 			return nullptr;
 		}
 
@@ -40,7 +41,7 @@ DECLARE_UNREALSHARP_BINDER(Bind_UCoreUObject)
 		
 		if (!IsValid(Package))
 		{
-			UE_LOGFMT(LogUnrealSharp, Fatal, "GetNativeDelegate: Could not find package %s", PackageName);
+			UE_LOG(LogUnrealSharp, Fatal, TEXT("GetNativeDelegate: Could not find package %s"), UTF8_TO_TCHAR(PackageName));
 		}
 		
 		UObject* Outer = Package;
@@ -49,14 +50,16 @@ DECLARE_UNREALSHARP_BINDER(Bind_UCoreUObject)
 			Outer = FindObject<UObject>(Package, UTF8_TO_TCHAR(OuterName));
 			if (!IsValid(Outer))
 			{
-				UE_LOGFMT(LogUnrealSharp, Fatal, "GetNativeDelegate: Could not find outer %s in package %s", OuterName, PackageName);
+				UE_LOG(LogUnrealSharp, Fatal, TEXT("GetNativeDelegate: Could not find outer %s in package %s"),
+				UTF8_TO_TCHAR(OuterName), UTF8_TO_TCHAR(PackageName));
 			}
 		}
 		
 		UDelegateFunction* DelegateFunction = FindObject<UDelegateFunction>(Outer, UTF8_TO_TCHAR(DelegateName));
 		if (!IsValid(DelegateFunction))
 		{
-			UE_LOGFMT(LogUnrealSharp, Fatal, "GetNativeDelegate: Could not find delegate %s in outer %s in package %s", DelegateName, OuterName ? OuterName : "<null>", PackageName);
+			UE_LOG(LogUnrealSharp, Fatal, TEXT("GetNativeDelegate: Could not find delegate %s in outer %s in package %s"),
+				UTF8_TO_TCHAR(DelegateName), OuterName ? UTF8_TO_TCHAR(OuterName) : TEXT("<null>"), UTF8_TO_TCHAR(PackageName));
 		}
 		
 		return DelegateFunction;
