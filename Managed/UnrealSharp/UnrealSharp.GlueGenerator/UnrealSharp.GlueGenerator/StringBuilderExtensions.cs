@@ -68,7 +68,7 @@ public static class StringBuilderExtensions
 
         builder.AppendLine(
             $"public static void {registrationMethodName}() => " +
-            $"RegisterManagedType(typeof({type.FieldName}), {jsonPropertyName}, {(byte)type.FieldType});");
+            $"RegisterManagedType(typeof(global::{type.FieldName}), {jsonPropertyName}, {(byte)type.FieldType});");
 
         builder.AppendLine($"static string {jsonPropertyName} => \"\"\"\n{json}\n\"\"\";");
 
