@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using EpicGames.Core;
@@ -103,7 +103,27 @@ public static class PackageExporter
 
         if (exportAction != null)
         {
-            TaskManager.StartTask(_ => exportAction());
+            UhtType capturedType = type;
+            Action capturedAction = exportAction;
+            TaskManager.StartTask(_ =>
+            {
+                try
+                {
+                    capturedAction();
+                }
+                catch (Exception ex)
+                {
+                    // A single unsupported type must not abort the whole UHT export:
+                    // UE 5.9 introduced property/type variants the generators may not
+                    // understand yet. Log the offender and continue with the rest.
+                    string project = GeneratorStatics.Factory.Session.ProjectDirectory ?? ".";
+                    string logPath = Path.Combine(project, "Saved", "Logs", "unrealsharp-glue.log");
+                    Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+                    File.AppendAllText(logPath,
+                        $"[{DateTime.Now:HH:mm:ss.fff}] EXPORT FAILED {capturedType.GetType().Name} " +
+                        $"{capturedType.SourceName} ({capturedType.HeaderFile?.FilePath}): {ex}{Environment.NewLine}");
+                }
+            });
         }
     }
 

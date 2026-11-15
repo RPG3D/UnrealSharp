@@ -45,16 +45,42 @@ public static class Program
     [UhtExporter(Name = "UnrealSharpCore", Description = "Exports C++ to C# code", Options = UhtExporterOptions.Default, ModuleName = "UnrealSharpCore")]
     private static void Main(IUhtExportFactory factory)
     {
-        ConsoleUtilities.Log("Initializing UnrealSharp C# bindings generator...");
-        
-        GeneratorStatics.Initialize(factory);
-        ExportBindings();
-        
-        FileExporter.CleanOldExportedFiles();
-        BuildUtilities.BuildBindings();
-        
-        ModuleFactory.SyncModuleProjects();
-        BuildUtilities.GenerateUserSolution();
+        string logDirectory = Path.Combine(factory.Session.ProjectDirectory ?? ".", "Saved", "Logs");
+        Directory.CreateDirectory(logDirectory);
+        string traceFile = Path.Combine(logDirectory, "unrealsharp-glue.log");
+
+        void Trace(string message)
+        {
+            File.AppendAllText(traceFile, $"[{DateTime.Now:HH:mm:ss.fff}] {message}{Environment.NewLine}");
+        }
+
+        try
+        {
+            Trace("Initialize");
+            ConsoleUtilities.Log("Initializing UnrealSharp C# bindings generator...");
+
+            GeneratorStatics.Initialize(factory);
+            Trace("ExportBindings");
+            ExportBindings();
+
+            Trace("CleanOldExportedFiles");
+            FileExporter.CleanOldExportedFiles();
+            Trace("BuildBindings");
+            BuildUtilities.BuildBindings();
+
+            Trace("SyncModuleProjects");
+            ModuleFactory.SyncModuleProjects();
+            Trace("GenerateUserSolution");
+            BuildUtilities.GenerateUserSolution();
+            Trace("Done");
+        }
+        catch (Exception ex)
+        {
+            Trace("EXCEPTION: " + ex);
+            ConsoleUtilities.Log("Critical failure during glue generation:");
+            ConsoleUtilities.Log(ex.ToString());
+            throw;
+        }
     }
 
     private static void ExportBindings()
