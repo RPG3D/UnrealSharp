@@ -1,0 +1,171 @@
+UnrealSharp 移动端实现与验证记录
+
+用途与范围
+保留本次移植补丁的理由、当前代码归属和验证边界，供后续更新上游时逐项复核。
+长期移植思路见 MOBILE_PORTING_GUIDE.md，发布操作见 README.md。
+本记录随代码维护，不继续累加临时提交号、重试过程或设备操作流水。
+
+上游基线为 main 947b6ae5，mobile20261021作为问题与方案参考。
+目标为Android/iOS arm64，Mono与CoreCLR。托管项目目标为net10.0。
+本次使用现有本地SDK载荷：Mono .NET 10、CoreCLR .NET 11；运行时源码核验依据其载荷记录。
+DotNetRuntimeSDK固定在86976ca8，相对66a9523c只调整一处managed staging规则。
+
+当前代码归属及补丁理由
+
+1. 原生运行时
+Source/UnrealSharpCore/Private/DotNet/CSDotNetRuntimeHost.cpp
+Source/UnrealSharpCore/Public/DotNet/CSDotNetRuntimeHost.h
+  .cpp中的桌面实现保留上游正文，只增加所需头文件和编译条件；头文件按后端声明状态。
+  移动端不依赖桌面hostfxr。各后端自行实现InitializeManagedRuntime和ShutdownManagedRuntime。
+Source/UnrealSharpCore/Private/DotNet/CSDotNetRuntimeHost_Mono.cpp
+  Mono embedding、UFS程序集preload、iOS解释执行和CoreLib AOT注册、启动与cleanup。
+  preload保留字节复制与image引用释放约定。dl fallback直接透传Mono已转换的原生RTLD flags。
+Source/UnrealSharpCore/Private/DotNet/CSDotNetRuntimeHost_MobileCoreClr.cpp
+  原始CoreCLR宿主、TPA、CoreLib probe、移动平台配置、启动与shutdown。
+  从UFS准备物理缓存。逻辑路径负责UE I/O，物理路径负责实际缓存比较和原子替换。
+  probe字节与runtime contract维持运行时生命周期；删除旧缓存项，避免更新安装混入旧程序集。
+
+2. 托管入口及程序集加载
+Managed/UnrealSharp/UnrealSharp.Plugins/Main.cs
+Managed/UnrealSharp/UnrealSharp.Plugins/Main_Mobile.cs
+  通用初始化与错误缓冲在Main.cs；移动入口和HasHostPolicy状态在Main_Mobile.cs。
+  宿主能力决定是否使用桌面hostpolicy/MSBuild注册路线。
+Managed/UnrealSharp/UnrealSharp.Plugins/Plugin.cs
+Managed/UnrealSharp/UnrealSharp.Plugins/PluginLoadContext.cs
+Managed/UnrealSharp/UnrealSharp.Plugins/PluginLoadContext_Mobile.cs
+  Plugin.cs选择适合宿主的load context；常规加载与embedded解析分别位于两个partial文件。
+  embedded路径优先共享Default中的程序集；共享查找失败后仍支持显式物理目录及同目录依赖。
+  避免无hostpolicy时构造AssemblyDependencyResolver，也避免直接忽略调用者提供的路径。
+
+3. 构建与发布
+Build/Scripts/BuildCommands/BuildSolution.cs
+Build/Scripts/BuildCommands/BuildSolution_Mobile.cs
+Build/Scripts/BuildCommands/BuildEmitLoadOrder.cs
+  原构建入口把共享插件根交给_Mobile中的Mutex逻辑。
+  同一插件的restore/build/publish需协调共享输出，处理符号链接别名、弃锁和异常释放。
+  无Project的原CLI路径保留。独立checkout共享用户项目的情况另由artifacts目录隔离。
+Build/Scripts/BuildCommands/PackageProject.cs
+Build/Scripts/BuildCommands/PackageProject_Mobile.cs
+Build/Scripts/BuildCommands/PackageProjectMobile.cs
+  PackageProject.cs保留桌面编排，并提供复用的bindings、glue、user及load-order步骤。
+  PackageProject_Mobile.cs负责framework-dependent RID发布、分析器输出与用户构建图隔离、发布引用参数。
+  PackageProjectMobile.cs负责目标约束、内容目录、发布锁、备份恢复、native资产检查和发布戳。
+  发布成功才替换旧输出；恢复按Plugins.dll和完成标记判断，避免把BCL-only目录误认为完整发布。
+Build/Scripts/Utilities/DotNetSdkUtilities.cs
+  增加Android、IOS与IOSSimulator的RID映射，保留原桌面映射。
+UnrealSharp.Shared.props
+UnrealSharp.Mobile.targets
+  Shared.props参数化分析器目录；Mobile.targets只更新框架和已知glue的发布引用。
+  普通私人HintPath保持其显式解析，避免全局搜索路径改变已有引用的含义。
+Source/UnrealSharpCore/UnrealSharpCore.Build.cs
+  引入DotNetRuntimeSDK，并跟踪平台发布戳，使托管发布后native收据和SDK复制动作重新求值。
+Source/UnrealSharpUtilities/Private/CSPathsUtilities.cpp
+  移动程序集与manifest使用Content/Managed/<Platform>的UFS路径；桌面路径保留。
+UnrealSharp.uplugin
+.gitmodules
+Source/ThirdParty/DotNetRuntimeSDK
+  平台白名单包含Android/IOS，声明并固定SDK子模块。
+  SDK仅统一Mono设备/Simulator的managed内容目录为IOS；native载荷仍按架构选择。
+
+4. 解释器原生调用
+Managed/UnrealSharp/UnrealSharp.SourceGenerators/NativeCallbacksWrapperGenerator.cs
+Managed/UnrealSharp/UnrealSharp.SourceGenerators/NativeCallbacksWrapperGenerator_Mobile.cs
+Managed/UnrealSharp/UnrealSharp.SourceGenerators.Tests/NativeCallbacksWrapperGeneratorTests.cs
+  原文件保留发现与包装声明，_Mobile文件生成解释器可用的调用并检查布局。
+  字符串显式UTF-8，能直接按原生布局传递的byref参数在调用期间固定。
+  unmanaged不自动等于blittable。结合源符号和PE布局核验MarshalAs、Auto layout等情况，需封送的类型保留原封送；这不声明解释器支持任意封送签名。
+Managed/UnrealSharp/UnrealSharp/Interop/Bind_FScriptSet.cs
+Managed/UnrealSharp/UnrealSharp/ScriptSet.cs
+Managed/UnrealSharp/UnrealSharp/ScriptSetHelper.cs
+Source/UnrealSharpCore/Private/Binds/Bind_FScriptSet.cpp
+  Set低层ABI改为由FProperty在原生端负责hash、比较、构造和析构，移除需隐式转换的托管delegate参数。
+  既有正常Set入口和索引语义保留；依赖旧低层ABI的程序集需要重新编译。
+  FindIndex复用UE helper。Add保留CopySingleValue语义，未改用本机UE5.9中使用CopySingleValueToScriptVM的AddElement。
+
+5. 原生临时缓冲对齐
+Source/UnrealSharpCore/Private/Binds/Bind_UFunction.cpp
+Managed/UnrealSharp/UnrealSharp/Interop/Bind_UFunction.cs
+  按前NumParms个参数属性计算最大对齐，排除Blueprint局部字段；不能使用可能为1的UFunction自身MinAlignment。
+Source/UnrealSharpCore/Private/Binds/Bind_FProperty.cpp
+Managed/UnrealSharp/UnrealSharp/Interop/Bind_FProperty.cs
+Source/UnrealSharpCore/Private/Binds/Bind_UScriptStruct.cpp
+Managed/UnrealSharp/UnrealSharp/Interop/Bind_UScriptStruct.cs
+  公开属性与原生结构体所需对齐查询。
+Source/UnrealSharpManagedGlue/SourceGeneration/GeneratorStringBuilderUtilities.cs
+Managed/UnrealSharp/UnrealSharp.GlueGenerator/UnrealSharp.GlueGenerator/StringBuilderExtensions.cs
+Managed/UnrealSharp/UnrealSharp.GlueGenerator/UnrealSharp.GlueGenerator/NativeTypes/UnrealFunctionBase.cs
+  两套生成器及其调用方按实际要求预留padding并对齐可用指针，再初始化和调用原生函数。
+Managed/UnrealSharp/UnrealSharp/Interop/Properties/NativeProperty.cs
+Managed/UnrealSharp/UnrealSharp/MapBase.cs
+Managed/UnrealSharp/UnrealSharp/ScriptMapHelper.cs
+Managed/UnrealSharp/UnrealSharp/ScriptSetHelper.cs
+Managed/UnrealSharp/UnrealSharp/Extensions/CoreUObject/InstancedStruct.cs
+  属性对齐查询与内部指针对齐公式供容器及结构体临时内存复用。
+  iPad旧包首次SpawnActor曾因Mono解释器8字节分配与FTransform的16字节要求不匹配而触发断言。
+  16字节要求的缓冲申请长度增加15字节，运行时另行取整；这是随方法返回释放的栈空间，不产生托管堆分配。
+
+6. 当前上游与UE兼容修订
+Managed/UnrealSharp/UnrealSharp/Extensions/Engine/Actor.cs
+Managed/UnrealSharp/UnrealSharp/Extensions/Engine/ActorComponent.cs
+  UE5.9已生成相应replicated-subobject包装，条件排除重复手写方法，保留旧引擎分支。
+Managed/UnrealSharp/UnrealSharp/Extensions/Engine/World.cs
+  用常量适配UE5.9的ENetMode命名，保留IsServer/IsClient/IsStandalone的比较语义。
+Source/UnrealSharpManagedGlue/Utilities/ClassUtilities.cs
+Source/UnrealSharpManagedGlue/Exporters/InterfaceExporter.cs
+Source/UnrealSharpManagedGlue/Utilities/NameMapper.cs
+  接口配对采用UE5.9新的UHT接口属性，旧引擎仍走原AlternateObject路径。
+Source/UnrealSharpManagedGlue/PropertyTranslators/PropertyTranslatorManager.cs
+  只排除4个当前默认值转换不支持的引擎测试函数，未排除整个测试类。
+UnrealSharp.Automation.props
+  把UE_5_9_OR_LATER传入工具编译，保持相关条件分支一致。
+Build/Scripts/BuildCommands/BuildUserGlue.cs
+  修正stamp与自身比较的问题，并在复用stamp前确认solution存在，避免项目集变化后漏构建。
+Source/UnrealSharpCore/Private/Binds/Bind_UCoreUObject.cpp
+  仅修正UE_LOGFMT诊断占位符，查找和Fatal行为保留。
+Managed/UnrealSharp/UnrealSharp.GlueGenerator/UnrealSharp.GlueGenerator/StringBuilderExtensions.cs
+  另以global::限定typeof注册类型，避免用户类与命名空间同名时解析错误。
+
+验证结果及适用范围
+
+2026年11月19日，使用独立SharpDemo验证副本、本机UE5.9和缓存SDK完成验证。
+移动端使用arm64设备：Android 24122RKC7C、iPad Air 7/iPadOS 27.2.1。
+组合                  编译与发布    签名打包    安装、Gameplay与SMOKE PASS
+Android Mono          通过          通过        通过
+Android CoreCLR       通过          通过        通过
+iOS Mono              通过          通过        通过
+iOS CoreCLR           通过          通过        通过
+
+结构整理后四组合均重新发布、原生构建、签名打包和安装；重用既有Cook资源，未修改游戏资产。
+APK通过apksigner验证，.app通过codesign深度严格验证；分别核对Mono/CoreCLR native运行时内容互斥。
+Android CoreCLR另验证开始新游戏、视频播放及跳过后的引擎场景、角色和对白。iPad CoreCLR持续运行超过两分钟。
+这些结果覆盖已执行的启动和场景路径，不代表完整游戏流程、长时间稳定性或所有设备兼容性通过。
+
+结构整理前后29项生成器测试通过。
+两版生成器的49份包装文件逐字一致，其中47份来自生产Interop输入、2份来自测试输入。
+已有解释器分配复现显示旧分配48/64次未满足16字节对齐；两套实际生成器输出在256次对齐检查中全部通过。
+构建锁夹具覆盖并发、符号链接、弃锁、失败释放与无Project命令行路径。
+发布夹具覆盖失败保留旧输出、BCL-only恢复、native资产拒绝、RID、发布戳与引用路径。
+加载夹具覆盖物理目录、外部依赖、Default共享和实体collectible程序集；它们不等于移动UFS collectible完整验证。
+
+初轮在本机CoreCLR Mac Editor下通过UHT及完整Editor构建。
+结构整理后的桌面宿主正文与上游一致，但未追加完整桌面原生目标重建；旧缓存的独立检查因PCH/UHT路径失效未形成有效编译证据。
+验证副本使用本机引擎需要的两个可选UGP空钩子及文件式Cook，这些条件不属于插件的通用部署要求。
+
+仍需单独验证
+- 其他真机、系统版本、长时间运行和完整游戏流程。
+- 低版本iOS：现有Mono CoreLib AOT对象带iOS26.5标记，项目目标为17.0，当前设备运行通过不能覆盖低版本兼容性。
+- UE5.6至5.8的实际引擎构建；条件代码与props检查不能替代真实构建。
+- iOS Simulator实际执行、移动UFS collectible、完整Mono Editor热重载及移动PDB调试。
+- installed插件分发与复杂原生NuGet资产的完整设备集成。
+
+后续维护要求
+移动专用流程保留独立文件，上游入口仍需随被调用方法和执行顺序一起复核。
+对齐、Set ABI、UE兼容和通用缺陷修复保留在负责该问题的位置，并在上游更新后重新判断是否仍需保留。
+代码改变时同步更新本记录的文件归属、保留理由和验证范围；删除上游已覆盖的补丁时一并删除对应说明。
+
+本机证据索引
+以下目录是本次排查辅助，未随源码分发，也不保证跨机器或临时目录清理后仍可取得。
+/private/tmp/unrealsharp-review-61120：初轮审查、生成器/发布/加载夹具及构建记录。
+/private/tmp/unrealsharp-ipad-crash：对齐断言现场、负对照和实际生成代码复现。
+/private/tmp/unrealsharp-refactor-61120：结构整理前后输出对比、四组合构建归档与真机日志。
+未来验证应针对当时的代码和环境生成新证据，不能仅凭这些路径或本次结果宣布通过。

@@ -39,7 +39,9 @@ public class Plugin
         }
         else
         {
-            _loadContext = new PluginLoadContext(assemblyName.Name!, new AssemblyDependencyResolver(assemblyPath), isCollectible);
+            _loadContext = Main.HasHostPolicy
+                ? new PluginLoadContext(assemblyName.Name!, new AssemblyDependencyResolver(assemblyPath), isCollectible)
+                : new PluginLoadContext(assemblyName.Name!, assemblyPath, isCollectible);
         }
     }
 

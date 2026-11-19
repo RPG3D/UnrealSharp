@@ -1,0 +1,3 @@
+[submodule "Source/ThirdParty/DotNetRuntimeSDK"]
+	path = Source/ThirdParty/DotNetRuntimeSDK
+	url = https://github.com/RPG3D/DotNetRuntimeSdk.git

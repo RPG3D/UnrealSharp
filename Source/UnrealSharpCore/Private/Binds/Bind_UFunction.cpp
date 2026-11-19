@@ -9,6 +9,19 @@ DECLARE_UNREALSHARP_BINDER(Bind_UFunction)
 		return NativeFunction->ParmsSize;
 	}
 
+	int32 GetNativeFunctionParamsAlignment(const UFunction* NativeFunction)
+	{
+		check(NativeFunction);
+		// Native UFunctions can retain MinAlignment=1 despite over-aligned parameters.
+		int32 Alignment = 1;
+		uint8 ParamsLeft = NativeFunction->NumParms;
+		for (TFieldIterator<FProperty> PropIt(NativeFunction); PropIt && ParamsLeft; ++PropIt, --ParamsLeft)
+		{
+			Alignment = FMath::Max(Alignment, PropIt->GetMinAlignment());
+		}
+		return Alignment;
+	}
+
 	UFunction* CreateNativeFunctionCustomStructSpecialization(UFunction* NativeFunction,
 		FProperty** CustomStructParams, UScriptStruct** CustomStructs)
 	{
@@ -133,6 +146,7 @@ DECLARE_UNREALSHARP_BINDER(Bind_UFunction)
 	}
 	
 	BIND_UNREALSHARP_FUNCTION(GetNativeFunctionParamsSize)
+	BIND_UNREALSHARP_FUNCTION(GetNativeFunctionParamsAlignment)
 	BIND_UNREALSHARP_FUNCTION(CreateNativeFunctionCustomStructSpecialization)
 	BIND_UNREALSHARP_FUNCTION(InitializeFunctionParams)
 	BIND_UNREALSHARP_FUNCTION(DestroyFunctionParams)

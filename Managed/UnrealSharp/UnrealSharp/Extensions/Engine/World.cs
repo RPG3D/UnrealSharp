@@ -5,6 +5,18 @@ namespace UnrealSharp.Engine;
 
 public partial class UWorld
 {
+#if UE_5_9_OR_LATER
+    private const ENetMode NetModeStandalone = ENetMode.NM_Standalone;
+    private const ENetMode NetModeClient = ENetMode.NM_Client;
+    private const ENetMode NetModeListenServer = ENetMode.NM_ListenServer;
+    private const ENetMode NetModeDedicatedServer = ENetMode.NM_DedicatedServer;
+#else
+    private const ENetMode NetModeStandalone = ENetMode.Standalone;
+    private const ENetMode NetModeClient = ENetMode.Client;
+    private const ENetMode NetModeListenServer = ENetMode.ListenServer;
+    private const ENetMode NetModeDedicatedServer = ENetMode.DedicatedServer;
+#endif
+
     /// <summary>
     /// The URL that was used when loading this World.
     /// </summary>
@@ -98,17 +110,17 @@ public partial class UWorld
     /// <summary>
     /// Returns true if we are running as a listen server or dedicated server
     /// </summary>
-    public bool IsServer => NetMode == ENetMode.ListenServer || NetMode == ENetMode.DedicatedServer;
+    public bool IsServer => NetMode == NetModeListenServer || NetMode == NetModeDedicatedServer;
     
     /// <summary>
     /// Returns true if we are running as a client
     /// </summary>
-    public bool IsClient => NetMode == ENetMode.Client;
+    public bool IsClient => NetMode == NetModeClient;
     
     /// <summary>
     /// Returns true if we are running as a standalone game. No multiplayer involved.
     /// </summary>
-	public bool IsStandalone => NetMode == ENetMode.Standalone;
+	public bool IsStandalone => NetMode == NetModeStandalone;
     
     /// <summary>
     /// Jumps the server to new level.  If bAbsolute is true and we are using seemless traveling, we

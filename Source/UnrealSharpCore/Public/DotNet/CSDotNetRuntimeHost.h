@@ -2,10 +2,11 @@
 
 #include "CoreMinimal.h"
 
+#if !UNREALSHARP_MONO && !PLATFORM_ANDROID && !PLATFORM_IOS
 #include <coreclr_delegates.h>
 #include <hostfxr.h>
-
 #include "HAL/PlatformProcess.h"
+#endif
 #include "CSInteropTypeTraits.h"
 
 struct FCSManagedCallbacks;
@@ -31,6 +32,7 @@ CS_ASSERT_INTEROP_SAFE_FUNCTION(FInitializeUnrealSharp);
 
 static_assert(sizeof(TCHAR) == sizeof(char16_t), "TCHAR must be a 16-bit character.");
 
+#if !UNREALSHARP_MONO && !PLATFORM_ANDROID && !PLATFORM_IOS
 struct FCSDotNetLayout
 {
 	FString DotNetRoot;
@@ -45,6 +47,8 @@ struct FCSDotNetLayout
 	}
 };
 
+#endif
+
 class FCSDotNetRuntimeHost
 {
 public:
@@ -55,6 +59,14 @@ public:
 	void ShutdownManagedRuntime();
 
 private:
+#if UNREALSHARP_MONO
+	bool InitializeMono(const FString& WorkingDirectory, FCSInitializationResult& Result);
+	struct _MonoDomain* MonoDomain = nullptr;
+#elif PLATFORM_ANDROID || PLATFORM_IOS
+	FInitializeUnrealSharp InitializeMobileCoreClr(FString& OutWorkingDirectory);
+	void* CoreClrHost = nullptr;
+	unsigned int CoreClrDomain = 0;
+#else
 	static FCSDotNetLayout ResolveDotNetLayout(const FString& PluginAssemblyPath);
 
 	load_assembly_and_get_function_pointer_fn InitializeHost();
@@ -73,4 +85,5 @@ private:
 	hostfxr_close_fn Hostfxr_Close = nullptr;
 
 	void* RuntimeHost = nullptr;
+#endif
 };

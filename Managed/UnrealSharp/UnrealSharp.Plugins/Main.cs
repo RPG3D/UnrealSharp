@@ -14,7 +14,7 @@ internal unsafe struct FCSInitializationResult
     public fixed byte Message[MessageCapacity];
 }
 
-internal static class Main
+internal static partial class Main
 {
     [UnmanagedCallersOnly]
     private static unsafe void InitializeUnrealSharp(
@@ -23,14 +23,27 @@ internal static class Main
         nint bindsCallbacks,
         nint managedCallbacks,
         FCSInitializationResult* result)
+        => Initialize(workingDirectoryUtf8, pluginCallbacks, bindsCallbacks, managedCallbacks, result, hasHostPolicy: true);
+
+    private static unsafe void Initialize(
+        byte* workingDirectoryUtf8,
+        PluginsCallbacks* pluginCallbacks,
+        nint bindsCallbacks,
+        nint managedCallbacks,
+        FCSInitializationResult* result,
+        bool hasHostPolicy)
     {
         try
         {
+            HasHostPolicy = hasHostPolicy;
             AppDomain.CurrentDomain.SetData("APP_CONTEXT_BASE_DIRECTORY",
                 Marshal.PtrToStringUTF8((nint)workingDirectoryUtf8)!);
 
 #if WITH_EDITOR
-            TryRegisterMSBuild();
+            if (hasHostPolicy)
+            {
+                TryRegisterMSBuild();
+            }
 #endif
 
             PluginsCallbacks.Initialize(pluginCallbacks);

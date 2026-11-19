@@ -154,6 +154,14 @@ public static class PropertyTranslatorManager
         InclusionLists.BanProperty("UActorComponent", "bReplicates");
         InclusionLists.BanFunction("UActorComponent", "SetIsReplicated");
 
+#if UE_5_9_OR_LATER
+        // These engine test defaults require optional, nested-struct or soft-path converters that are not implemented.
+        InclusionLists.BanFunction("UJsonSchemaGeneratorFakeClass", "TestOptionalStructDefaultFunc");
+        InclusionLists.BanFunction("UJsonSchemaGeneratorFakeClass", "TestRuntimeMetadataFunc");
+        InclusionLists.BanFunction("UJsonSchemaGeneratorFakeClass", "TestEngineStructFunc");
+        InclusionLists.BanFunction("UJsonSchemaGeneratorFakeClass", "TestEngineCustomizedFunc");
+#endif
+
         // Doesn't have any fields
         InclusionLists.BanArithmetic("FSubsystemCollectionBaseRef");
         InclusionLists.BanArithmetic("FRandomStream");

@@ -9,6 +9,11 @@ public static class DotNetSdkUtilities
 {
     public static string GetDotNetRuntimeIdentifier(UnrealTargetPlatform platform, UnrealArch architecture)
     {
+        if (platform == UnrealTargetPlatform.IOS && architecture == UnrealArch.IOSSimulator)
+        {
+            return "iossimulator-arm64";
+        }
+
         string PlatformPart = GetPlatformIdentifier(platform);
         string ArchitecturePart = GetArchitectureIdentifier(architecture);
         return $"{PlatformPart}-{ArchitecturePart}";
@@ -16,6 +21,16 @@ public static class DotNetSdkUtilities
 
     public static string GetPlatformIdentifier(UnrealTargetPlatform platform)
     {
+        if (platform == UnrealTargetPlatform.Android)
+        {
+            return "android";
+        }
+
+        if (platform == UnrealTargetPlatform.IOS)
+        {
+            return "ios";
+        }
+
         if (platform == UnrealTargetPlatform.Win64)
         {
             return "win";
@@ -36,7 +51,7 @@ public static class DotNetSdkUtilities
             return "linux";
         }
 
-        throw new NotSupportedException($"Unsupported target platform for .NET publish: '{platform}'. " + $"Supported platforms: Win64, Mac, Linux, LinuxArm64.");
+        throw new NotSupportedException($"Unsupported target platform for .NET publish: '{platform}'. " + $"Supported platforms: Win64, Mac, Linux, LinuxArm64, Android, IOS.");
     }
 
     public static string GetArchitectureIdentifier(UnrealArch architecture)

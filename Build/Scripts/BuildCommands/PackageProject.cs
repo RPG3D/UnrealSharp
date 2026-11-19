@@ -18,7 +18,7 @@ namespace UnrealSharp.Automation.BuildCommands;
 [Help("TargetArchitecture=<Arch>", "Optional. Target architecture. Defaults to X64.")]
 [Help("NativeAOT", "Optional flag. Enables Native AOT compilation for the user solution.")]
 [Help("UserParams", "Optional. Additional parameters to forward to the user solution build. " + "These should be specified in the format -UserParams=\"-p:Property=Value\" -UserParams=\"--argument\".")]
-public class PackageProject : BuildCommand
+public partial class PackageProject : BuildCommand
 {
     private const string ManagedFolderName = "Managed";
     private const string BindingsProjectFolder = "UnrealSharp";
@@ -56,7 +56,7 @@ public class PackageProject : BuildCommand
         BuildBindingsSolution(Arguments, options.BuildConfiguration);
         BuildUserBindings(PublishFolder, options, Arguments);
         BuildUserSolution(PublishFolder, Arguments, options);
-        
+
         EmitInstalledFlagFile(PublishFolder);
 
         LoggerUtilities.LogUnrealSharpInfo($"Packaging complete. Published files: {PublishFolder}");
@@ -111,6 +111,11 @@ public class PackageProject : BuildCommand
             throw new NotSupportedException("Native AOT packaging is not currently supported. This option is reserved for future use and should not be set.");
         }
 
+        if (options.TargetPlatform == UnrealTargetPlatform.Android || options.TargetPlatform == UnrealTargetPlatform.IOS)
+        {
+            throw new NotSupportedException("Use PackageProjectMobile for SDK-hosted mobile targets.");
+        }
+
         string HostFxrPath = DotNetUtilities.LatestHostFxrPath;
         if (!File.Exists(HostFxrPath))
         {
@@ -128,7 +133,7 @@ public class PackageProject : BuildCommand
         }
     }
 
-    private static void CleanBuildArtifacts(string folder)
+    protected static void CleanBuildArtifacts(string folder)
     {
         if (!Directory.Exists(folder))
         {
@@ -157,15 +162,15 @@ public class PackageProject : BuildCommand
         }
     }
 
-    private static IList<string> BuildBaseArguments(string runtimeIdentifier, PackagingOptions options, string publishFolder)
+    private static IList<string> BuildBaseArguments(string runtimeIdentifier, PackagingOptions options, string publishFolder, bool selfContained = true)
     {
         return
         [
             "--runtime", runtimeIdentifier,
 
             "-p:UseDefaultOutputPath=true",
-            
-            $"-p:PublishSelfContained={(options.NativeAot ? "false" : "true")}",
+
+            $"-p:PublishSelfContained={(selfContained && !options.NativeAot ? "true" : "false")}",
 
             $"-p:UETargetType={options.TargetType}",
             $"-p:UEBuildConfig={options.BuildConfiguration}",
@@ -177,7 +182,7 @@ public class PackageProject : BuildCommand
     private void BuildBindingsSolution(IList<string> arguments, UnrealTargetConfiguration buildConfig)
     {
         string BindingsPath = Path.Combine(this.GetUnrealSharpRootFolder(), ManagedFolderName, BindingsProjectFolder);
-        BuildCommands.BuildSolution.RunBuild(BindingsPath, buildConfig, publish: true, arguments);
+        BuildCommands.BuildSolution.RunBuild(BindingsPath, buildConfig, publish: true, arguments, this.GetUnrealSharpRootFolder());
     }
 
     private void BuildUserSolution(string publishFolder, IList<string> buildArguments, PackagingOptions options)
@@ -205,7 +210,7 @@ public class PackageProject : BuildCommand
             }
         }
 
-        BuildCommands.BuildSolution.RunBuild(SolutionDirectory, options.BuildConfiguration, publish: true, BuildUserSolutionArguments);
+        BuildCommands.BuildSolution.RunBuild(SolutionDirectory, options.BuildConfiguration, publish: true, BuildUserSolutionArguments, this.GetUnrealSharpRootFolder());
         
         EmitUserLoadOrder(publishFolder, ProjectFiles);
     }

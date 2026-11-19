@@ -63,12 +63,11 @@ public class BuildUserGlue : BuildCommand
 
     private static void GenerateSolution(BuildCommand command, string solutionDirectory, List<string> glueProjectPaths)
     {
-        if (IsSolutionStampSame(solutionDirectory, glueProjectPaths))
+        const string solutionName = "UnrealSharpGlue";
+        if (File.Exists(Path.Combine(solutionDirectory, solutionName + ".sln")) && IsSolutionStampSame(solutionDirectory, glueProjectPaths))
         {
             return;
         }
-        
-        const string solutionName = "UnrealSharpGlue";
         
         List<KeyValuePair<string, string>> CommandParams = new List<KeyValuePair<string, string>>
         {
@@ -104,7 +103,7 @@ public class BuildUserGlue : BuildCommand
             return false;
         }
 
-        return glueProjectPaths.ToList().SequenceEqual(glueProjectPaths);
+        return GlueProjectsArray.Select(project => project?.GetValue<string>()).SequenceEqual(glueProjectPaths);
     }
 
     private static void CreateSolutionStamp(string solutionPath, List<string> glueProjectPaths)

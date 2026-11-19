@@ -68,7 +68,7 @@ public static class StringBuilderExtensions
 
         builder.AppendLine(
             $"public static void {registrationMethodName}() => " +
-            $"RegisterManagedType(typeof({type.FieldName}), {jsonPropertyName}, {(byte)type.FieldType});");
+            $"RegisterManagedType(typeof(global::{type.FieldName}), {jsonPropertyName}, {(byte)type.FieldType});");
 
         builder.AppendLine($"static string {jsonPropertyName} => \"\"\"\n{json}\n\"\"\";");
 
@@ -115,11 +115,13 @@ public static class StringBuilderExtensions
         builder.AppendLine("#pragma warning restore CA2255");
     }
 
-    public static void AllocateParameterBuffer(this GeneratorStringBuilder builder, string sizeName)
+    public static void AllocateParameterBuffer(this GeneratorStringBuilder builder, string sizeName, string alignmentExpression = "16")
     {
-        builder.AppendLine($"byte* {SourceGenUtilities.ParamsBufferAllocation} = stackalloc byte[{sizeName}];");
+        string alignmentName = SourceGenUtilities.ParamsBuffer + "Alignment";
+        builder.AppendLine($"int {alignmentName} = {alignmentExpression};");
+        builder.AppendLine($"byte* {SourceGenUtilities.ParamsBufferAllocation} = stackalloc byte[{sizeName} + {alignmentName} - 1];");
         builder.AppendLine(
-            $"nint {SourceGenUtilities.ParamsBuffer} = (nint) {SourceGenUtilities.ParamsBufferAllocation};");
+            $"nint {SourceGenUtilities.ParamsBuffer} = ((nint){SourceGenUtilities.ParamsBufferAllocation} + {alignmentName} - 1) & ~(nint)({alignmentName} - 1);");
     }
 
     public static void AppendEditorBrowsableAttribute(this GeneratorStringBuilder builder)

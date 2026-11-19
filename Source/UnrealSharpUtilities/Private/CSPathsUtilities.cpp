@@ -20,12 +20,16 @@ FString UnrealSharp::Paths::GetUnrealSharpDirectory()
 
 FString UnrealSharp::Paths::GetPluginAssembliesPath()
 {
+#if PLATFORM_ANDROID || PLATFORM_IOS
+    return GetUserAssemblyDirectory();
+#else
     if (InstallationUtilities::IsUnrealSharpInstalled())
     {
         return GetUserAssemblyDirectory();
     }
     
     return FPaths::Combine(GetPluginDirectory(), DotNetUtilities::GetManagedBinaries());
+#endif
 }
 
 FString UnrealSharp::Paths::GetUnrealSharpPluginsPath()
@@ -44,7 +48,13 @@ FString UnrealSharp::Paths::GetUnrealSharpBuildToolPath()
 
 FString UnrealSharp::Paths::GetUserAssemblyDirectory()
 {
+#if PLATFORM_ANDROID
+    return FPaths::ProjectContentDir() / TEXT("Managed/Android");
+#elif PLATFORM_IOS
+    return FPaths::ProjectContentDir() / TEXT("Managed/IOS");
+#else
     return FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectDir(), DotNetUtilities::GetManagedBinaries()));
+#endif
 }
 
 FString UnrealSharp::Paths::GetUnrealSharpMetadataPath()

@@ -15,7 +15,7 @@ public struct ParameterInfo
 }
 
 [Generator]
-public class NativeCallbacksWrapperGenerator : IIncrementalGenerator
+public partial class NativeCallbacksWrapperGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -107,7 +107,7 @@ public class NativeCallbacksWrapperGenerator : IIncrementalGenerator
                 {
                     string typeFullName = param.Type.GetAnnotatedTypeName(model) ?? param.Type.ToString();
 
-                    if (param.IsOutParameter || param.IsRefParameter)
+                    if (param.RefModifier.Length > 0 || IsString(param, model))
                     {
                         sourceBuilder.Append($"IntPtr.Size");
                     }
@@ -137,8 +137,7 @@ public class NativeCallbacksWrapperGenerator : IIncrementalGenerator
             sourceBuilder.Append($"             {delegateName} = (delegate* unmanaged<");
             sourceBuilder.Append(string.Join(", ", delegateInfo.Parameters.Select(p =>
             {
-                string prefix = p.IsOutParameter ? "out " : p.IsRefParameter ? "ref " : string.Empty;
-                return prefix + (p.Type.GetAnnotatedTypeName(model) ?? p.Type.ToString());
+                return p.RefModifier + GetTypeName(p, model);
             })));
 
             if (delegateInfo.Parameters.Count > 0)
@@ -170,41 +169,13 @@ public class NativeCallbacksWrapperGenerator : IIncrementalGenerator
 
                 firstParameter = false;
 
-                if (parameter.IsOutParameter)
-                {
-                    sourceBuilder.Append("out ");
-                }
-
-                if (parameter.IsRefParameter)
-                {
-                    sourceBuilder.Append("ref ");
-                }
-
-                string typeFullName = parameter.Type.GetAnnotatedTypeName(model) ?? parameter.Type.ToString();
-                sourceBuilder.Append($"{typeFullName} {parameter.Name}");
+                sourceBuilder.Append($"{parameter.RefModifier}{GetTypeName(parameter, model)} {parameter.Name}");
             }
 
             sourceBuilder.AppendLine(")");
             sourceBuilder.AppendLine("        {");
 
-            string delegateName = delegateInfo.Name;
-
-            if (delegateInfo.ReturnValue.Type.ToString() != "void")
-            {
-                sourceBuilder.Append($"            return {delegateName}(");
-            }
-            else
-            {
-                sourceBuilder.Append($"            {delegateName}(");
-            }
-
-            sourceBuilder.Append(string.Join(", ", delegateInfo.Parameters.Select(p =>
-            {
-                string prefix = p.IsOutParameter ? "out " : p.IsRefParameter ? "ref " : string.Empty;
-                return prefix + p.Name;
-            })));
-
-            sourceBuilder.AppendLine(");");
+            AppendNativeCall(sourceBuilder, classInfo, delegateInfo, model, returnTypeFullName);
             sourceBuilder.AppendLine("        }");
         }
 
@@ -271,8 +242,7 @@ public class NativeCallbacksWrapperGenerator : IIncrementalGenerator
                 DelegateParameterInfo parameter = new DelegateParameterInfo
                 {
                     Name = paramName.ToString(),
-                    IsOutParameter = param.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.OutKeyword)),
-                    IsRefParameter = param.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.RefKeyword)),
+                    RefModifier = param.Modifiers.Count == 0 ? "" : param.Modifiers.ToString() + " ",
                     Type = param.Type,
                 };
 
@@ -332,6 +302,5 @@ public struct DelegateParameterInfo
 {
     public string Name;
     public TypeSyntax Type;
-    public bool IsOutParameter;
-    public bool IsRefParameter;
+    public string RefModifier;
 }

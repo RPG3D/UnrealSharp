@@ -104,13 +104,15 @@ internal unsafe struct ScriptMapHelper
     public void AddPair<TKey, TValue>(TKey key, TValue value, MarshallingDelegates<TKey>.ToNative keyToNative,
         MarshallingDelegates<TValue>.ToNative valueToNative)
     {
-        byte* keyBuffer = stackalloc byte[_keyProp.Size];
-        IntPtr keyPtr = new IntPtr(keyBuffer);
+        int keyAlignment = _keyProp.Alignment;
+        byte* keyBuffer = stackalloc byte[_keyProp.Size + keyAlignment - 1];
+        IntPtr keyPtr = NativeProperty.AlignBuffer(keyBuffer, keyAlignment);
         _keyProp.InitializeValue(keyPtr);
         keyToNative(keyPtr, 0, key);
         
-        byte* valueBuffer = stackalloc byte[_valueProp.Size];
-        IntPtr valuePtr = new IntPtr(valueBuffer);
+        int valueAlignment = _valueProp.Alignment;
+        byte* valueBuffer = stackalloc byte[_valueProp.Size + valueAlignment - 1];
+        IntPtr valuePtr = NativeProperty.AlignBuffer(valueBuffer, valueAlignment);
         _valueProp.InitializeValue(valuePtr);
         valueToNative(valuePtr, 0, value);
         

@@ -7,6 +7,7 @@ namespace UnrealSharp.Interop;
 public static unsafe partial class Bind_UScriptStruct
 {
     public static delegate* unmanaged<IntPtr, int> GetNativeStructSize;
+    public static delegate* unmanaged<IntPtr, int> GetNativeStructAlignment;
 
     public static delegate* unmanaged<IntPtr, IntPtr, IntPtr, NativeBool> NativeCopy;
     

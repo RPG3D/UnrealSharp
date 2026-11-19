@@ -8,16 +8,21 @@
 #include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
 #include "Logging/StructuredLog.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 using namespace UnrealSharp;
 
+#if !UNREALSHARP_MONO && !PLATFORM_ANDROID && !PLATFORM_IOS
 static_assert(sizeof(DotNetUtilities::FHostChar) == sizeof(char_t), "FHostChar does not match hostfxr's char_t.");
+#endif
 
 FCSDotNetRuntimeHost::~FCSDotNetRuntimeHost()
 {
 	ShutdownManagedRuntime();
 }
 
+#if !UNREALSHARP_MONO && !PLATFORM_ANDROID && !PLATFORM_IOS
 bool FCSDotNetRuntimeHost::InitializeManagedRuntime()
 {
 	load_assembly_and_get_function_pointer_fn LoadAssemblyAndGetFunctionPointer = InitializeHost();
@@ -235,3 +240,5 @@ load_assembly_and_get_function_pointer_fn FCSDotNetRuntimeHost::ConfigureRuntime
 
 	return reinterpret_cast<load_assembly_and_get_function_pointer_fn>(LoadAssemblyAndGetFunctionPointer);
 }
+
+#endif

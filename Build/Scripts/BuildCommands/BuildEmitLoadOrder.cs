@@ -38,7 +38,8 @@ public class BuildEmitLoadOrder : BuildCommand
 
         List<string> BuildArguments = BuildSolutionArguments(OutputPath);
 
-        BuildCommands.BuildSolution.RunBuild(SolutionPath, TargetConfiguration, publish: true, BuildArguments);
+        string? SharedBuildRoot = string.IsNullOrEmpty(ParseOptionalStringParam("Project")) ? null : this.GetUnrealSharpRootFolder();
+        BuildCommands.BuildSolution.RunBuild(SolutionPath, TargetConfiguration, publish: true, BuildArguments, SharedBuildRoot);
         
         EmitLoadOrder(Projects, LoadOrderName, OutputPath, Options);
         if (LoadOrderName == LoadOrderUtilities.UserLoadOrderName)

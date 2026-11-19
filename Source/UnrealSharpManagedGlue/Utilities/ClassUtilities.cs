@@ -48,10 +48,23 @@ public static class ClassUtilities
         return null;
     }
 
-    public static UhtClass GetInterfaceAlternateClass(this UhtClass thisInterface)
+    public static UhtClass? FindInterfaceCompanion(this UhtClass classObj)
     {
-        return (UhtClass)thisInterface.AlternateObject!;
+#if UE_5_9_OR_LATER
+        return classObj.ClassType switch
+        {
+            UhtClassType.Interface => classObj.NativeInterfaceClass,
+            UhtClassType.NativeInterface => classObj.InterfaceClass,
+            _ => null,
+        };
+#else
+        return classObj.AlternateObject as UhtClass;
+#endif
     }
+
+    public static UhtClass GetInterfaceAlternateClass(this UhtClass thisInterface)
+        => thisInterface.FindInterfaceCompanion()
+           ?? throw new InvalidOperationException($"{thisInterface.SourceName} has no companion interface.");
 
     public static bool HasAnyFlags(this UhtClass classObj, EClassFlags flags)
     {

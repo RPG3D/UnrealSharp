@@ -49,18 +49,18 @@ public struct FScriptSet
         return Bind_FScriptSet.CallAddUninitialized(SetPointer, nativeProperty);
     }
     
-    internal void Add(IntPtr elementToAdd, IntPtr nativeProperty, HashDelegates.GetKeyHash elementHash, HashDelegates.Equality elementEquality, HashDelegates.Construct elementConstruct, HashDelegates.Destruct elementDestruct)
+    internal void Add(IntPtr elementToAdd, IntPtr nativeProperty)
     {
-        Bind_FScriptSet.CallAdd(SetPointer, nativeProperty, elementToAdd, elementHash, elementEquality, elementConstruct, elementDestruct);
-    }
-    
-    internal int FindOrAdd(IntPtr elementToAdd, IntPtr nativeProperty, HashDelegates.GetKeyHash elementHash, HashDelegates.Equality elementEquality, HashDelegates.Construct elementConstruct)
-    {
-        return Bind_FScriptSet.CallFindOrAdd(SetPointer, nativeProperty, elementToAdd, elementHash, elementEquality, elementConstruct);
+        Bind_FScriptSet.CallAdd(SetPointer, nativeProperty, elementToAdd);
     }
 
-    internal int FindIndex(IntPtr elementToFind, IntPtr nativeProperty, HashDelegates.GetKeyHash elementHash, HashDelegates.Equality elementEquality)
+    internal int FindOrAdd(IntPtr elementToAdd, IntPtr nativeProperty)
     {
-        return Bind_FScriptSet.CallFindIndex(SetPointer, nativeProperty, elementToFind, elementHash, elementEquality);
+        return Bind_FScriptSet.CallFindOrAdd(SetPointer, nativeProperty, elementToAdd);
+    }
+
+    internal int FindIndex(IntPtr elementToFind, IntPtr nativeProperty)
+    {
+        return Bind_FScriptSet.CallFindIndex(SetPointer, nativeProperty, elementToFind);
     }
 }

@@ -339,7 +339,8 @@ public abstract record UnrealFunctionBase : UnrealStruct
 
         builder.BeginUnsafeBlock();
 
-        builder.AllocateParameterBuffer(SizeVariableName);
+        builder.AllocateParameterBuffer(SizeVariableName,
+            $"Bind_UFunction.CallGetNativeFunctionParamsAlignment({FunctionNativePtr})");
         builder.AppendLine($"Bind_UFunction.CallInitializeFunctionParams({FunctionNativePtr}, {SourceGenUtilities.ParamsBuffer});");
         builder.AppendLine("try");
         builder.OpenBrace();

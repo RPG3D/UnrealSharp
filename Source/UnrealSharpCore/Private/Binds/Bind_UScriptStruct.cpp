@@ -20,6 +20,11 @@ DECLARE_UNREALSHARP_BINDER(Bind_UScriptStruct)
 		return ScriptStruct->GetStructureSize();
 	}
 
+	int32 GetNativeStructAlignment(const UScriptStruct* ScriptStruct)
+	{
+		return ScriptStruct->GetMinAlignment();
+	}
+
 	bool NativeCopy(const UScriptStruct* ScriptStruct, void* Src, void* Dest)
 	{
 		if (UScriptStruct::ICppStructOps* CppStructOps = ScriptStruct->GetCppStructOps(); CppStructOps != nullptr)
@@ -111,6 +116,7 @@ DECLARE_UNREALSHARP_BINDER(Bind_UScriptStruct)
 	}
 
 	BIND_UNREALSHARP_FUNCTION(GetNativeStructSize)
+	BIND_UNREALSHARP_FUNCTION(GetNativeStructAlignment)
 	BIND_UNREALSHARP_FUNCTION(NativeCopy)
 	BIND_UNREALSHARP_FUNCTION(NativeDestroy)
 	BIND_UNREALSHARP_FUNCTION(AllocateNativeStruct)

@@ -19,6 +19,11 @@ DECLARE_UNREALSHARP_BINDER(Bind_FProperty)
 		return Property->GetSize();
 	}
 
+	int32 GetMinAlignment(const FProperty* Property)
+	{
+		return Property->GetMinAlignment();
+	}
+
 	int32 GetArrayDim(FProperty* Property)
 	{
 		return Property->ArrayDim;
@@ -125,6 +130,7 @@ DECLARE_UNREALSHARP_BINDER(Bind_FProperty)
 	BIND_UNREALSHARP_FUNCTION(GetNativePropertyFromName)
 	BIND_UNREALSHARP_FUNCTION(GetPropertyOffset)
 	BIND_UNREALSHARP_FUNCTION(GetSize)
+	BIND_UNREALSHARP_FUNCTION(GetMinAlignment)
 	BIND_UNREALSHARP_FUNCTION(GetArrayDim)
 	BIND_UNREALSHARP_FUNCTION(DestroyValue)
 	BIND_UNREALSHARP_FUNCTION(DestroyValue_InContainer)

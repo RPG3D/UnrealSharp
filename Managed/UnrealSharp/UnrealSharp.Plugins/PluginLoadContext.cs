@@ -4,9 +4,9 @@ using System.IO;
 
 namespace UnrealSharp.Plugins;
 
-public class PluginLoadContext : AssemblyLoadContext
+public partial class PluginLoadContext : AssemblyLoadContext
 {
-    private readonly AssemblyDependencyResolver _resolver;
+    private readonly AssemblyDependencyResolver? _resolver;
 
     public PluginLoadContext(string pluginName, AssemblyDependencyResolver resolver, bool isCollectible) : base(pluginName, isCollectible)
     {
@@ -26,7 +26,11 @@ public class PluginLoadContext : AssemblyLoadContext
             return loadedAssembly;
         }
         
-        string? assemblyPath = _resolver.ResolveAssemblyToPath(assemblyName);
+        string? assemblyPath = _resolver?.ResolveAssemblyToPath(assemblyName);
+        if (ResolveEmbeddedAssembly(assemblyName, ref assemblyPath) is { } sharedAssembly)
+        {
+            return sharedAssembly;
+        }
         
         Assembly? newAssembly;
         if (string.IsNullOrEmpty(assemblyPath))

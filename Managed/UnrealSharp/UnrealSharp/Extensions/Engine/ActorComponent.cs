@@ -14,6 +14,7 @@ public partial class UActorComponent
         set => UCSActorComponentExtensions.SetIsReplicated(this, value);
     }
     
+#if !UE_5_9_OR_LATER
     /// <summary>
     /// Register a SubObject that will get replicated along with the actor component.
     /// The subobject needs to be manually removed from the list before it gets deleted.
@@ -46,4 +47,5 @@ public partial class UActorComponent
     {
         return UCSActorComponentExtensions.IsReplicatedSubObjectRegistered(this, subObject);
     }
+#endif
 }

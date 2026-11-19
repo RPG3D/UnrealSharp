@@ -1,0 +1,16 @@
+<Project>
+  <!-- SDK-hosted publishes resolve user references against this publish's output. -->
+  <Target Name="UseUnrealSharpPublishedReferences" BeforeTargets="ResolveAssemblyReferences"
+          Condition="'$(UnrealSharpPublishedReferenceDirectory)' != ''">
+    <ItemGroup>
+      <Reference Condition="'%(Reference.Identity)' == 'UnrealSharp'
+                            Or '%(Reference.Identity)' == 'UnrealSharp.Binds'
+                            Or '%(Reference.Identity)' == 'UnrealSharp.Core'
+                            Or '%(Reference.Identity)' == 'UnrealSharp.Log'
+                            Or '%(Reference.Identity)' == 'UnrealSharp.Plugins'
+                            Or $([System.String]::Copy('|$(UnrealSharpPublishedGlueAssemblies)|').Contains('|%(Reference.Identity)|'))">
+        <HintPath>$(UnrealSharpPublishedReferenceDirectory)/%(Reference.Identity).dll</HintPath>
+      </Reference>
+    </ItemGroup>
+  </Target>
+</Project>

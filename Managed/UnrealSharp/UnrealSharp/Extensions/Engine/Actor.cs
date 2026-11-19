@@ -122,6 +122,7 @@ public partial class AActor
     public T AddComponentByClass<T>(TSubclassOf<T> @class, bool bManualAttachment, FTransform relativeTransform) where T : UActorComponent
         => (AddComponentByClass(@class.Cast<UActorComponent>(), bManualAttachment, relativeTransform, deferredFinish: false) as T)!;
 
+#if !UE_5_9_OR_LATER
     /// <summary>
     /// Register a SubObject that will get replicated along with the actor component.
     /// The subobject needs to be manually removed from the list before it gets deleted.
@@ -154,6 +155,7 @@ public partial class AActor
     {
         return UCSActorExtensions.IsReplicatedSubObjectRegistered(this, subObject);
     }
+#endif
 
     /// <summary>
     /// Move the Actor to the specified location.

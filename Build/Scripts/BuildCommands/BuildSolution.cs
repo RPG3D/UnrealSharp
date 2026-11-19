@@ -13,7 +13,7 @@ namespace UnrealSharp.Automation.BuildCommands;
 [Help("Publish", "If set, the solution is published instead of built.")]
 [Help("TargetConfiguration=<Config>", "The build configuration (Debug, DebugGame, Development, Shipping, etc.).")]
 [Help("ExtraArguments=<Arg>+<Arg>", "Additional arguments forwarded to dotnet build/publish.")]
-public class BuildSolution : BuildCommand
+public partial class BuildSolution : BuildCommand
 {
     public override void ExecuteBuild()
     {
@@ -28,15 +28,16 @@ public class BuildSolution : BuildCommand
         UnrealTargetConfiguration TargetConfiguration = ParseRequiredEnumParamEnum<UnrealTargetConfiguration>("TargetConfiguration");
         string[] ExtraArguments = ParseParamValues("ExtraArguments");
 
-        RunBuild(Folders, TargetConfiguration, Publish, ExtraArguments);
+        string? SharedBuildRoot = string.IsNullOrEmpty(ParseOptionalStringParam("Project")) ? null : this.GetUnrealSharpRootFolder();
+        RunBuild(Folders, TargetConfiguration, Publish, ExtraArguments, SharedBuildRoot);
     }
 
-    public static void RunBuild(string folder, UnrealTargetConfiguration buildConfig, bool publish, IList<string>? extraArguments = null)
+    public static void RunBuild(string folder, UnrealTargetConfiguration buildConfig, bool publish, IList<string>? extraArguments = null, string? sharedBuildRoot = null)
     {
-        RunBuild([folder], buildConfig, publish, extraArguments);
+        RunBuild([folder], buildConfig, publish, extraArguments, sharedBuildRoot);
     }
 
-    public static void RunBuild(IEnumerable<string> folders, UnrealTargetConfiguration buildConfig, bool publish, IList<string>? extraArguments = null)
+    public static void RunBuild(IEnumerable<string> folders, UnrealTargetConfiguration buildConfig, bool publish, IList<string>? extraArguments = null, string? sharedBuildRoot = null)
     {
         ArgumentNullException.ThrowIfNull(folders);
 
@@ -54,7 +55,7 @@ public class BuildSolution : BuildCommand
 
         foreach (string SolutionFolder in FolderList)
         {
-            RunSingleBuild(SolutionFolder, Action, ConfigurationName, extraArguments);
+            RunSingleBuild(SolutionFolder, Action, ConfigurationName, extraArguments, sharedBuildRoot);
         }
     }
 
@@ -74,7 +75,7 @@ public class BuildSolution : BuildCommand
         }
     }
 
-    private static void RunSingleBuild(string solutionFolder, string action, string configurationName, IList<string>? extraArguments)
+    private static void RunSingleBuild(string solutionFolder, string action, string configurationName, IList<string>? extraArguments, string? sharedBuildRoot)
     {
         LoggerUtilities.LogUnrealSharpInfo($"Running dotnet {action} on {solutionFolder} (configuration: {configurationName}).");
 
@@ -92,6 +93,6 @@ public class BuildSolution : BuildCommand
             }
         }
 
-        BuildSolutionProcess.StartProcess();
+        RunWithBindingsLock(solutionFolder, sharedBuildRoot, BuildSolutionProcess.StartProcess);
     }
 }

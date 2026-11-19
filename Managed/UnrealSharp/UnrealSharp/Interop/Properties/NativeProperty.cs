@@ -13,8 +13,12 @@ internal class NativeProperty
     internal readonly IntPtr Property;
     internal int Offset => Bind_FProperty.CallGetPropertyOffset(Property);
     internal int Size => Bind_FProperty.CallGetSize(Property);
+    internal int Alignment => Bind_FProperty.CallGetMinAlignment(Property);
     internal int ArrayDim => Bind_FProperty.CallGetArrayDim(Property);
     
+    internal static unsafe IntPtr AlignBuffer(byte* allocation, int alignment)
+        => (IntPtr)(((nuint)allocation + (nuint)alignment - 1) & ~((nuint)alignment - 1));
+
     internal void DestroyValue(IntPtr valueAddress) => Bind_FProperty.CallDestroyValue(Property, valueAddress);
     internal void DestroyValue_Container(IntPtr valueAddress) => Bind_FProperty.CallDestroyValue_InContainer(Property, valueAddress);
     internal void InitializeValue(IntPtr valueAddress) => Bind_FProperty.CallInitializeValue(Property, valueAddress);

@@ -169,8 +169,9 @@ public unsafe class MapBase<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValu
     /// <returns></returns>
     protected int IndexOf(TKey value)
     {
-        byte* keyBuffer = stackalloc byte[_keyProperty.Size];
-        IntPtr keyPtr = new IntPtr(keyBuffer);
+        int alignment = _keyProperty.Alignment;
+        byte* keyBuffer = stackalloc byte[_keyProperty.Size + alignment - 1];
+        IntPtr keyPtr = NativeProperty.AlignBuffer(keyBuffer, alignment);
         
         _keyProperty.InitializeValue(keyPtr);
         _keyToNative(keyPtr, 0, value);

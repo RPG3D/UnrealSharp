@@ -9,6 +9,7 @@ public static unsafe partial class Bind_FProperty
     public static delegate* unmanaged<IntPtr, string, IntPtr> GetNativePropertyFromName;
     public static delegate* unmanaged<IntPtr, int> GetPropertyOffset;
     public static delegate* unmanaged<IntPtr, int> GetSize;
+    public static delegate* unmanaged<IntPtr, int> GetMinAlignment;
     public static delegate* unmanaged<IntPtr, int> GetArrayDim;
     public static delegate* unmanaged<IntPtr, IntPtr, void> DestroyValue;
     public static delegate* unmanaged<IntPtr, IntPtr, void> DestroyValue_InContainer;

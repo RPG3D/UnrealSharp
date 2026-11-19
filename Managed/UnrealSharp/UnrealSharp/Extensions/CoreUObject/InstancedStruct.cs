@@ -13,6 +13,7 @@ using UnrealSharp.CoreUObject;
 #endif
 
 using UnrealSharp.Interop;
+using UnrealSharp.Interop.Properties;
 
 #if UE_5_5_OR_LATER
 namespace UnrealSharp.CoreUObject;
@@ -110,10 +111,12 @@ public struct FInstancedStruct : MarshalledStruct<FInstancedStruct>, IDisposable
         unsafe
         {
             var instancedStruct = new FInstancedStruct();
-            Span<byte> data = stackalloc byte[T.GetNativeDataSize()];
             IntPtr nativeStruct = T.GetNativeClassPtr();
-            fixed (byte* dataPtr = data)
+            int alignment = Bind_UScriptStruct.CallGetNativeStructAlignment(nativeStruct);
+            Span<byte> data = stackalloc byte[T.GetNativeDataSize() + alignment - 1];
+            fixed (byte* allocation = data)
             {
+                byte* dataPtr = (byte*)NativeProperty.AlignBuffer(allocation, alignment);
                 value.ToNative((IntPtr) dataPtr);
                 Bind_FInstancedStruct.CallInitializeAs(ref instancedStruct._manager!.StructData, nativeStruct, (IntPtr)dataPtr);
                 Bind_UScriptStruct.CallNativeDestroy(nativeStruct, (IntPtr)dataPtr);

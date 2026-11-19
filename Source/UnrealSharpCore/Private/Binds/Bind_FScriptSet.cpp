@@ -2,11 +2,6 @@
 
 DECLARE_UNREALSHARP_BINDER(Bind_FScriptSet)
 {
-	using FGetKeyHash = uint32(*)(const void*);
-	using FEqualityFn = bool(*)(const void*, const void*);
-	using FConstructFn = void(*)(void*);
-	using FDestructFn = void(*)(void*);
-	
 	bool IsValidIndex(FScriptSet* ScriptSet, int32 Index)
 	{
 		return ScriptSet->IsValidIndex(Index);
@@ -49,21 +44,46 @@ DECLARE_UNREALSHARP_BINDER(Bind_FScriptSet)
 		return ScriptSet->AddUninitialized(Property->SetLayout);
 	}
 
-	void Add(FScriptSet* ScriptSet, FSetProperty* Property, const void* Element, FGetKeyHash GetKeyHash, FEqualityFn EqualityFn, FConstructFn ConstructFn, FDestructFn DestructFn)
+	// The element's FProperty defines all set operations. Keep these callbacks native so
+	// the same bindings can be called when managed code is running under an interpreter.
+	void Add(FScriptSet* ScriptSet, FSetProperty* Property, const void* Element)
 	{
-		ScriptSet->Add(Element, Property->SetLayout, GetKeyHash, EqualityFn, ConstructFn, DestructFn);
+		const FProperty* ElementProperty = Property->ElementProp;
+		ScriptSet->Add(Element, Property->SetLayout,
+			[ElementProperty](const void* Value) { return ElementProperty->GetValueTypeHash(Value); },
+			[ElementProperty](const void* A, const void* B) { return ElementProperty->Identical(A, B); },
+			[ElementProperty, Element](void* Destination)
+			{
+				ElementProperty->InitializeValue(Destination);
+				ElementProperty->CopySingleValue(Destination, Element);
+			},
+			[ElementProperty](void* Value)
+			{
+				if (!ElementProperty->HasAnyPropertyFlags(CPF_IsPlainOldData | CPF_NoDestructor))
+				{
+					ElementProperty->DestroyValue(Value);
+				}
+			});
 	}
 
-	int32 FindOrAdd(FScriptSet* ScriptSet, FSetProperty* Property, const void* Element, FGetKeyHash GetKeyHash, FEqualityFn EqualityFn, FConstructFn ConstructFn)
+	int32 FindOrAdd(FScriptSet* ScriptSet, FSetProperty* Property, const void* Element)
 	{
-		return ScriptSet->FindOrAdd(Element, Property->SetLayout, GetKeyHash, EqualityFn, ConstructFn);
+		const FProperty* ElementProperty = Property->ElementProp;
+		return ScriptSet->FindOrAdd(Element, Property->SetLayout,
+			[ElementProperty](const void* Value) { return ElementProperty->GetValueTypeHash(Value); },
+			[ElementProperty](const void* A, const void* B) { return ElementProperty->Identical(A, B); },
+			[ElementProperty, Element](void* Destination)
+			{
+				ElementProperty->InitializeValue(Destination);
+				ElementProperty->CopySingleValue(Destination, Element);
+			});
 	}
 
-	int FindIndex(FScriptSet* ScriptSet, FSetProperty* Property, const void* Element, FGetKeyHash GetKeyHash, FEqualityFn EqualityFn)
+	int FindIndex(FScriptSet* ScriptSet, FSetProperty* Property, const void* Element)
 	{
-		return ScriptSet->FindIndex(Element, Property->SetLayout, GetKeyHash, EqualityFn);
+		return FScriptSetHelper(Property, ScriptSet).FindElementIndexFromHash(Element);
 	}
-	
+
 	BIND_UNREALSHARP_FUNCTION(IsValidIndex)
 	BIND_UNREALSHARP_FUNCTION(Num)
 	BIND_UNREALSHARP_FUNCTION(GetMaxIndex)

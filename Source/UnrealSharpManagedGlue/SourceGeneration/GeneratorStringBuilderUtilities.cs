@@ -168,16 +168,18 @@ public static class GeneratorStringBuilderUtilities
         stringBuilder.AppendLine($"static readonly IntPtr NativeClassPtr = UnrealSharp.Core.NativeReflectionHelper.GetNativeField(typeof({structType.GetStructName()}), \"{structType.SourceName}\");");
     }
     
-    public static void AppendStackAlloc(this GeneratorStringBuilder stringBuilder, string sizeVariableName)
+    public static void AppendStackAlloc(this GeneratorStringBuilder stringBuilder, string sizeVariableName, string alignmentExpression = "16")
     {
-        stringBuilder.AppendLine($"byte* paramsBufferAllocation = stackalloc byte[{sizeVariableName}];");
-        stringBuilder.AppendLine("nint paramsBuffer = (nint) paramsBufferAllocation;");
+        stringBuilder.AppendLine($"int paramsBufferAlignment = {alignmentExpression};");
+        stringBuilder.AppendLine($"byte* paramsBufferAllocation = stackalloc byte[{sizeVariableName} + paramsBufferAlignment - 1];");
+        stringBuilder.AppendLine("nint paramsBuffer = ((nint)paramsBufferAllocation + paramsBufferAlignment - 1) & ~(nint)(paramsBufferAlignment - 1);");
     }
 
     public static void AppendStackAllocFunction(this GeneratorStringBuilder stringBuilder, string sizeVariableName, string structName, bool appendInitializer = true)
     {
-        stringBuilder.AppendStackAlloc(sizeVariableName);
-        
+        stringBuilder.AppendStackAlloc(sizeVariableName,
+            $"{ExporterCallbacks.Bind_UFunction}.CallGetNativeFunctionParamsAlignment({structName})");
+
         if (appendInitializer)
         {
             stringBuilder.AppendLine($"{ExporterCallbacks.Bind_UFunction}.CallInitializeFunctionParams({structName}, paramsBuffer);");
@@ -186,7 +188,7 @@ public static class GeneratorStringBuilderUtilities
 
     public static void AppendStackAllocProperty(this GeneratorStringBuilder stringBuilder, string sizeVariableName, string sourcePropertyName)
     {
-        stringBuilder.AppendStackAlloc(sizeVariableName);
+        stringBuilder.AppendStackAlloc(sizeVariableName, $"CallGetMinAlignment({sourcePropertyName})");
         stringBuilder.AppendLine($"CallInitializeValue({sourcePropertyName}, paramsBuffer);");
     }
 }

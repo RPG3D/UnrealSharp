@@ -185,25 +185,14 @@ internal unsafe struct FScriptSetHelper
     /// </summary>
     internal int FindElementIndexFromHash(IntPtr elementToFind)
     {
-        NativeProperty nativeProperty = _elementProp;
-
-        uint ElementHash(IntPtr elementKey)
-        {
-            return nativeProperty.GetValueTypeHash(elementKey);
-        }
-
-        NativeBool ElementEquality(IntPtr a, IntPtr b)
-        {
-            return nativeProperty.Identical(a, b).ToNativeBool();
-        }
-
-        return Set.FindIndex(elementToFind, _setProperty.Property, ElementHash, ElementEquality);
+        return Set.FindIndex(elementToFind, _setProperty.Property);
     }
 
     internal int IndexOf<T>(T item, MarshallingDelegates<T>.ToNative toNative)
     {
-        byte* temp = stackalloc byte[_elementProp.Size];
-        IntPtr tempPtr = (IntPtr) temp;
+        int alignment = _elementProp.Alignment;
+        byte* temp = stackalloc byte[_elementProp.Size + alignment - 1];
+        IntPtr tempPtr = NativeProperty.AlignBuffer(temp, alignment);
         
         _elementProp.InitializeValue(tempPtr);
         toNative(tempPtr, 0, item);
@@ -215,8 +204,9 @@ internal unsafe struct FScriptSetHelper
 
     internal void AddElement<T>(T item, MarshallingDelegates<T>.ToNative toNative)
     {
-        byte* temp = stackalloc byte[_elementProp.Size];
-        IntPtr tempPtr = (IntPtr)temp;
+        int alignment = _elementProp.Alignment;
+        byte* temp = stackalloc byte[_elementProp.Size + alignment - 1];
+        IntPtr tempPtr = NativeProperty.AlignBuffer(temp, alignment);
         
         _elementProp.InitializeValue(tempPtr);
         toNative(tempPtr, 0, item);
@@ -227,8 +217,9 @@ internal unsafe struct FScriptSetHelper
     
     internal int FindOrAddElement<T>(T item, MarshallingDelegates<T>.ToNative toNative)
     {
-        byte* temp = stackalloc byte[_elementProp.Size];
-        IntPtr tempPtr = (IntPtr)temp;
+        int alignment = _elementProp.Alignment;
+        byte* temp = stackalloc byte[_elementProp.Size + alignment - 1];
+        IntPtr tempPtr = NativeProperty.AlignBuffer(temp, alignment);
         
         _elementProp.InitializeValue(tempPtr);
         toNative(tempPtr, 0, item);
@@ -243,58 +234,12 @@ internal unsafe struct FScriptSetHelper
     /// </summary>
     internal void AddElement(IntPtr elementToAdd)
     {
-        NativeProperty property = _elementProp;
-
-        uint ElementHash(IntPtr elementKey)
-        {
-            return Bind_FProperty.CallGetValueTypeHash(property.Property, elementKey);
-        }
-
-        NativeBool ElementEquality(IntPtr a, IntPtr b)
-        {
-            return Bind_FProperty.CallIdentical(property.Property, a, b);
-        }
-
-        void ElementConstruct(IntPtr newElement)
-        {
-            property.InitializeValue(newElement);
-            Bind_FProperty.CallCopySingleValue(property.Property, newElement, elementToAdd);
-        }
-
-        void ElementDestruct(IntPtr element)
-        {
-            if (property.HasAnyPropertyFlags(NativePropertyFlags.IsPlainOldData | NativePropertyFlags.NoDestructor))
-            {
-                return;
-            }
-            
-            property.DestroyValue(element);
-        }
-
-        Set.Add(elementToAdd, _setProperty.Property, ElementHash, ElementEquality, ElementConstruct, ElementDestruct);
+        Set.Add(elementToAdd, _setProperty.Property);
     }
     
     internal int FindOrAddElement(IntPtr elementToAdd)
     {
-        NativeProperty property = _elementProp;
-
-        uint ElementHash(IntPtr elementKey)
-        {
-            return Bind_FProperty.CallGetValueTypeHash(property.Property, elementKey);
-        }
-
-        NativeBool ElementEquality(IntPtr a, IntPtr b)
-        {
-            return Bind_FProperty.CallIdentical(property.Property, a, b);
-        }
-
-        void ElementConstruct(IntPtr newElement)
-        {
-            property.InitializeValue(newElement);
-            Bind_FProperty.CallCopySingleValue(property.Property, newElement, elementToAdd);
-        }
-
-        return Set.FindOrAdd(elementToAdd, _setProperty.Property, ElementHash, ElementEquality, ElementConstruct);
+        return Set.FindOrAdd(elementToAdd, _setProperty.Property);
     }
 
     /// <summary>
@@ -302,19 +247,7 @@ internal unsafe struct FScriptSetHelper
     /// </summary>
     internal bool RemoveElement(IntPtr elementToRemove)
     {
-        NativeProperty property = _elementProp;
-
-        uint ElementHash(IntPtr elementKey)
-        {
-            return property.GetValueTypeHash(elementKey);
-        }
-
-        NativeBool ElementEquality(IntPtr a, IntPtr b)
-        {
-            return property.Identical(a, b).ToNativeBool();
-        }
-
-        int foundIndex = Set.FindIndex(elementToRemove, _setProperty.Property, ElementHash, ElementEquality);
+        int foundIndex = Set.FindIndex(elementToRemove, _setProperty.Property);
         
         if (foundIndex == -1)
         {
